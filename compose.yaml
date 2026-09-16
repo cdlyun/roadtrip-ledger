@@ -1,0 +1,11 @@
+services:
+  roadtrip-ledger:
+    build: .
+    container_name: roadtrip-ledger
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18080:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      TZ: Asia/Shanghai

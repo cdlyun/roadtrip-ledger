@@ -1,0 +1,14 @@
+# 极空间无法访问 Docker Hub 时，复用本机已有且已验证包含 Python 3.13 的镜像层。
+FROM nousresearch/hermes-agent:v2026.8.31
+WORKDIR /app
+COPY app.py ./
+COPY static ./static
+RUN mkdir -p /app/data && chown -R 10001:10001 /app
+# 清空基础镜像的 s6/Hermes 入口，只复用其 Python 运行时和只读镜像层。
+ENTRYPOINT []
+USER 10001:10001
+ENV PORT=8080 ROADTRIP_DB=/app/data/roadtrip.db PYTHONUNBUFFERED=1
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=8s --retries=3 \
+  CMD ["/opt/hermes/.venv/bin/python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3).read()"]
+CMD ["/opt/hermes/.venv/bin/python3", "app.py"]

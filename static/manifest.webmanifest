@@ -1,0 +1,10 @@
+{
+  "name": "自驾账本",
+  "short_name": "自驾账本",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#edf8f5",
+  "theme_color": "#176f78",
+  "description": "只接收手机本地转写文字的自驾游记账工具"
+}

@@ -1,0 +1,26 @@
+__pycache__/
+*.py[cod]
+data/*.db
+data/*.db-*
+
+# Local records, exports and backups must never be published.
+data/
+backups/
+exports/
+artifacts/
+test-results/
+playwright-report/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.xlsx
+*.csv
+*.log
+.DS_Store
+node_modules/
+.env
+.env.*
+!.env.example
+*.pem
+*.key

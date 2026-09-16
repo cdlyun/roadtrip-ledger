@@ -1,0 +1,18 @@
+services:
+  roadtrip-ledger:
+    build:
+      context: .
+      dockerfile: Dockerfile.zspace-offline
+    container_name: roadtrip-ledger
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18080:8080"
+    volumes:
+      - ./data:/app/data
+      # 基础镜像声明了 /opt/data；使用固定命名卷，避免重建时产生匿名卷。
+      - roadtrip-scratch:/opt/data
+    environment:
+      TZ: Asia/Shanghai
+
+volumes:
+  roadtrip-scratch:
