@@ -8,6 +8,14 @@ Current application version: v3.2.0. Frontend asset revision: v3.2.0.
 
 The application and frontend asset revision use semantic versions (`vmajor.minor.patch`, for example `v3.1.1`); standalone incrementing asset revisions are no longer used. The database `schema_version` changes only with database migrations and is maintained separately.
 
+## Release history
+
+- **v3.2.0 (current):** adds optional DeepSeek Flash semantic completion for transcribed text. Local rules, offline entry, and final save-time validation remain the baseline safeguards.
+- **v3.1.3:** completed local acceptance of the mobile UI, GPS, offline cache, Excel export, and the full ledger lifecycle; see the [current acceptance report](docs/testing/TEST-REVIEW-2026-09-16.md).
+- **v1.9 (sealed baseline):** the recoverable production baseline before V2.1 development. Its former `v27` label was a browser-cache revision, not a product version; see the [seal record](docs/releases/RELEASE-v1.9-FINAL-2026-09-15.md).
+
+The complete historical release, testing, and audit materials are archived in [docs/releases](docs/releases/), [docs/testing](docs/testing/), and [docs/audits](docs/audits/). Earlier `v25`, `v35`, and `v36` labels identify phases or static-asset revisions; use each record’s product-version note as the source of truth.
+
 A text-based travel expense tracker deployed with Docker on a ZSpace NAS and used from an Android browser. Speech-to-text is handled locally on the phone: the app accepts text only, does not access the microphone, and does not upload recordings. This is English project documentation; the application interface and text parsing are designed for Chinese.
 
 ## Optional DeepSeek semantic completion
