@@ -2,13 +2,26 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-Current application version: v3.1.3. Frontend asset revision: v3.1.3.
+Current application version: v3.2.0. Frontend asset revision: v3.2.0.
 
 ## Versioning
 
 The application and frontend asset revision use semantic versions (`vmajor.minor.patch`, for example `v3.1.1`); standalone incrementing asset revisions are no longer used. The database `schema_version` changes only with database migrations and is maintained separately.
 
 A text-based travel expense tracker deployed with Docker on a ZSpace NAS and used from an Android browser. Speech-to-text is handled locally on the phone: the app accepts text only, does not access the microphone, and does not upload recordings. This is English project documentation; the application interface and text parsing are designed for Chinese.
+
+## Optional DeepSeek semantic completion
+
+The local keyword and rule parser remains the default and works offline. When DeepSeek is configured, only the transcribed text you submit is sent for completion of conversational category, location, item, and fuel full-tank state. Amount, liters, odometer, fuel grade, and timestamp remain subject to local parsing and save-time validation. AI-completed fields are shown for review; the model never writes an entry directly.
+
+Create a permission-`600` `.env` file beside the Compose file on the NAS (never commit it):
+
+```dotenv
+DEEPSEEK_API_KEY=your_DeepSeek_API_key
+DEEPSEEK_MODEL=deepseek-flash
+```
+
+Rebuild and start Compose afterwards. Keys and raw model responses are never written to SQLite, Excel exports, Git, or application logs. The transcribed original sentence continues to follow the existing ledger behavior: it is stored with the entry and can be exported or edited. Missing configuration, network failure, timeout, or invalid model JSON automatically falls back to local parsing.
 
 ## Features
 
@@ -35,6 +48,7 @@ A text-based travel expense tracker deployed with Docker on a ZSpace NAS and use
 
 1. Copy the `roadtrip-ledger` folder to a persistent directory on the NAS.
 2. Import `compose.yaml` into a Docker Compose project on ZSpace.
+   When DeepSeek is enabled, place the `.env` from the section above next to the Compose file; do not put a key in `compose.yaml`.
 3. Compose binds port `18080` only to the NAS loopback address, `127.0.0.1`. Configure Tailscale Serve to proxy your own tailnet HTTPS address to `http://127.0.0.1:18080`, then access it from a phone enrolled in that tailnet.
 4. Do not expose port `18080`, the database directory, or this application directly to the public internet. The app has no built-in login system: access control relies on tailnet membership and device security. Same-origin writes through Tailscale Serve HTTPS are supported; cross-site browser write requests are rejected.
 5. Open the page in an Android browser and optionally add it to the home screen. Use the phone’s input method for local speech-to-text, then submit the resulting text to the app.

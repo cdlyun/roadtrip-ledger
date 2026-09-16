@@ -66,3 +66,5 @@ button,.export-link{min-height:48px}.topbar{gap:12px}.topbar>div{min-width:0}.to
 #history-card .history-item,#trash-card .history-item{min-width:0}
 #history-card .history-item b,#history-card .history-item small,#trash-card .history-item b,#trash-card .history-item small{overflow-wrap:anywhere;word-break:break-word}
 @media (min-width:648px) and (max-width:991px){.sheet-header{border-radius:18px 18px 0 0}}
+/* 联网语义补全只作待核对提示，不影响离线规则解析。 */
+.recognition-note{margin:0 0 10px;padding:9px 10px;border-radius:9px;background:var(--teal-soft);color:var(--teal);font-size:12px;font-weight:650}

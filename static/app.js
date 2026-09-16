@@ -1,5 +1,5 @@
 const $ = (s) => document.querySelector(s);
-const state = { trip: null, latestFinished: null, parsed: null, reviewRecords: [], reviewRecordClientIds: [], reviewIndex: 0, dashboard: null, editingEntryId: null, editingTargetVersion: null, reviewQueueItem: null, editingClientId: null, editingClientRevision: null, gps: null, online: false, draftClientId: null, sourceEdit: null, savingEntry: false, syncing: false, reviewSession: 0, localState: null, draftTimer: null, naturalParseTimer: null, naturalParseToken: 0, naturalParsePending: "", entryMode: "natural", batch: null, trash: [], days: [], view: "home", sheetFocus: null, sheetOverflow: null, sheetRestorePending: false };
+const state = { trip: null, latestFinished: null, parsed: null, reviewRecords: [], reviewRecordClientIds: [], reviewIndex: 0, dashboard: null, editingEntryId: null, editingTargetVersion: null, reviewQueueItem: null, editingClientId: null, editingClientRevision: null, gps: null, online: false, draftClientId: null, sourceEdit: null, savingEntry: false, enhancingEntry: false, syncing: false, reviewSession: 0, localState: null, draftTimer: null, naturalParseTimer: null, naturalParseToken: 0, naturalParsePending: "", entryMode: "natural", batch: null, trash: [], days: [], view: "home", sheetFocus: null, sheetOverflow: null, sheetRestorePending: false };
 const STORAGE = {trip:"roadtrip.cachedTrip",dashboard:"roadtrip.cachedDashboard",queue:"roadtrip.offlineQueue",localState:"roadtrip.localState.v26"};
 const LOCAL_SCHEMA=31;
 const RESET_KEY="roadtrip.resetEpoch";
@@ -261,7 +261,7 @@ async function parseNaturalEntry({silent=false,token=null,rawText=null}={}){
   // 从确认页回来重新识别时，先保护用户已经逐项改过的内容。自动识别
   // 不弹确认框，避免输入原文时被打断；用户明确点按钮才可替换。
   if(state.sourceEdit?.active && state.savingEntry) return;
-  if(state.sourceEdit?.active && state.sourceEdit.manualChanges){
+  if(state.sourceEdit?.active && state.sourceEdit.manualChanges && !state.sourceEdit.confirmedReplacement){
     if(silent) return;
     if(!confirm("重新识别会替换当前确认内容；你手动修改的字段将由新结果覆盖。是否继续？")) return;
   }
@@ -270,7 +270,9 @@ async function parseNaturalEntry({silent=false,token=null,rawText=null}={}){
   state.naturalParsePending=raw;
   const button=$("#parse-entry"); if(button) { button.disabled=true; text(button,"正在识别…"); }
   try{
-    const parsed=await api("/api/parse",{method:"POST",body:JSON.stringify({text:raw})});
+    // 输入停顿时只跑离线规则；用户主动确认才调用可选的联网语义补全，避免
+    // 草稿和每一次键入停顿都被发送到外部服务。
+    const parsed=await api("/api/parse",{method:"POST",body:JSON.stringify({text:raw,ai_enhance:!silent})});
     // 只让最后一段文字的响应进入确认页；旧请求即使晚返回也不会覆盖新内容或手动填写。
     if(requestToken!==state.naturalParseToken || state.entryMode!=="natural" || String($("#entry-text")?.value || "").trim()!==raw) return;
     state.naturalParsePending="";
@@ -1122,9 +1124,9 @@ function setEditingMode(entryId=null){
 }
 
 function resetReview(clearEntryText=false){
-  cancelNaturalParse(); state.parsed=null; state.reviewRecords=[]; state.reviewRecordClientIds=[]; state.reviewIndex=0; state.gps=null; state.draftClientId=null; state.sourceEdit=null; state.reviewSession++; state.reviewQueueItem=null; state.editingClientId=null; state.editingClientRevision=null; state.editingTargetVersion=null; $("#gps-location").disabled=false; setEditingMode(null); $("#entry-form").reset();
+  cancelNaturalParse(); state.parsed=null; state.reviewRecords=[]; state.reviewRecordClientIds=[]; state.reviewIndex=0; state.gps=null; state.draftClientId=null; state.sourceEdit=null; state.enhancingEntry=false; state.reviewSession++; state.reviewQueueItem=null; state.editingClientId=null; state.editingClientRevision=null; state.editingTargetVersion=null; $("#gps-location").disabled=false; setEditingMode(null); $("#entry-form").reset();
   if(clearEntryText) $("#entry-text").value="";
-  $("#record-list").replaceChildren(); show("#record-list",false); show("#record-progress",false); $("#field-meta").replaceChildren(); show("#edit-source-text",false); show("#return-to-review",false); show("#review-card",false); show("#entry-card",Boolean(state.trip)); renderDraftBanner();
+  $("#record-list").replaceChildren(); show("#record-list",false); show("#record-progress",false); const recognitionNote=$("#recognition-note"); if(recognitionNote){ text(recognitionNote,""); recognitionNote.classList.toggle("hidden",true); } show("#enhance-entry",false); $("#field-meta").replaceChildren(); show("#edit-source-text",false); show("#return-to-review",false); show("#review-card",false); show("#entry-card",Boolean(state.trip)); renderDraftBanner();
 }
 
 function renderReview(parsed,entryId=null,context={}){
@@ -1156,10 +1158,19 @@ function renderActiveReview(){
   ["category","amount","location","item","fuel_grade","fuel_liters","fuel_unit_price","odometer","full_tank"].forEach(k=>assign(k,fields[k]));
   assign("occurred_at",fields.occurred_at || localDateTimeValue());
   text($("#gps-status"),"");
+  const recognitionNote=$("#recognition-note");
+  if(recognitionNote){ text(recognitionNote,parsed.recognition_notice || ""); recognitionNote.classList.toggle("hidden",!parsed.recognition_notice); }
+  renderReidentifyActions(parsed);
   updateCategoryFields(fields.category);
   renderFieldMeta(parsed.field_meta || state.reviewSource?.field_meta || {});
   updateReviewState();
   $("#review-card").scrollIntoView({behavior:"smooth",block:"start"});
+}
+function renderReidentifyActions(parsed=state.parsed){
+  // 只刷新两个入口，不触碰当前表单或 GPS，供增强请求 finally 安全恢复。
+  const canReidentify=canReidentifySource();
+  show("#edit-source-text",canReidentify);
+  show("#enhance-entry",Boolean(parsed?.ai_enhancement_available && !parsed?.recognition_notice && canReidentify));
 }
 function renderFieldMeta(meta){
   const box=$("#field-meta"); if(!box) return; box.replaceChildren();
@@ -1194,17 +1205,42 @@ function markFieldConfirmed(event){
   if(state.sourceEdit) state.sourceEdit.manualChanges=true;
   renderFieldMeta(state.parsed.field_meta);
 }
-function canReidentifySource(){ return Boolean(state.parsed && !state.savingEntry && state.editingEntryId==null && !state.reviewQueueItem && state.reviewRecords.length===1); }
+function canReidentifySource(){ return Boolean(state.parsed && !state.savingEntry && !state.enhancingEntry && state.editingEntryId==null && !state.reviewQueueItem && state.reviewRecords.length===1); }
+function hasManualReviewChanges(){
+  return Boolean(state.gps || Object.values(state.parsed?.field_meta || {}).some(info=>info?.reason==="已由用户确认"));
+}
 function editSourceText(){
   if(!canReidentifySource()){
     toast("只有单条未提交的新记录可以重新识别；修改已有记录或多笔记录请直接在确认页调整。"); return;
   }
   captureActiveReview();
-  activateSourceEdit({active:true,clientId:state.draftClientId || state.reviewRecordClientIds[0],rawText:$("#entry-text").value || state.parsed.raw_text || "",manualChanges:Object.values(state.parsed.field_meta||{}).some(info=>info?.reason==="已由用户确认")});
+  activateSourceEdit({active:true,clientId:state.draftClientId || state.reviewRecordClientIds[0],rawText:$("#entry-text").value || state.parsed.raw_text || "",manualChanges:hasManualReviewChanges()});
   persistDraft().catch(error=>toast(error.message)); $("#entry-text").focus?.();
 }
+async function enhanceCurrentEntry(){
+  if(!canReidentifySource()) return;
+  // 先冻结当前确认页的每个字段和 GPS 状态，增强结果只能通过原句重识别流程替换。
+  captureActiveReview();
+  const rawText=$("#entry-text").value || state.parsed.raw_text || "";
+  const manualChanges=hasManualReviewChanges();
+  if(manualChanges && !confirm("增强识别会替换当前确认内容；你手动修改的字段和 GPS 定位将由新结果覆盖。是否继续？")) return;
+  const button=$("#enhance-entry");
+  const reviewSession=state.reviewSession;
+  state.enhancingEntry=true;
+  if(button) button.disabled=true;
+  activateSourceEdit({active:true,clientId:state.draftClientId || state.reviewRecordClientIds[0],rawText,manualChanges,confirmedReplacement:true});
+  try{
+    await parseNaturalEntry({token:++state.naturalParseToken,rawText});
+  }finally{
+    state.enhancingEntry=false;
+    if(button) button.disabled=false;
+    // 成功响应会以新 session 进入确认页。此处只恢复入口，不重绘表单，
+    // 也不影响取消增强或任何已经切换出去的旧会话。
+    if(state.reviewSession!==reviewSession && !state.sourceEdit) renderReidentifyActions();
+  }
+}
 function activateSourceEdit(source,pendingRaw=null){
-  state.sourceEdit={active:true,clientId:source.clientId || state.draftClientId || state.reviewRecordClientIds[0],rawText:source.rawText || state.parsed?.raw_text || "",manualChanges:Boolean(source.manualChanges)};
+  state.sourceEdit={active:true,clientId:source.clientId || state.draftClientId || state.reviewRecordClientIds[0],rawText:source.rawText || state.parsed?.raw_text || "",manualChanges:Boolean(source.manualChanges),confirmedReplacement:Boolean(source.confirmedReplacement)};
   $("#entry-text").value=pendingRaw==null ? state.sourceEdit.rawText : pendingRaw;
   show("#review-card",false); show("#entry-card",true); show("#return-to-review",true); setEntryMode("natural",true);
 }
@@ -1419,6 +1455,9 @@ $("#parse-form").addEventListener("submit",async event=>{
   event.preventDefault();
   clearTimeout(state.naturalParseTimer);
   await parseNaturalEntry({token:++state.naturalParseToken});
+});
+$("#enhance-entry")?.addEventListener("click",async()=>{
+  await enhanceCurrentEntry();
 });
 
 $("#entry-form").addEventListener("submit",async event=>{

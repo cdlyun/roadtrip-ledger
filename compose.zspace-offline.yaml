@@ -13,6 +13,8 @@ services:
       - roadtrip-scratch:/opt/data
     environment:
       TZ: Asia/Shanghai
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
 
 volumes:
   roadtrip-scratch:

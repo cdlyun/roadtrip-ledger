@@ -9,3 +9,6 @@ services:
       - ./data:/app/data
     environment:
       TZ: Asia/Shanghai
+      # 可选：仅发送手机本地转写后的文字做语义补全；未配置时纯本地规则运行。
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}

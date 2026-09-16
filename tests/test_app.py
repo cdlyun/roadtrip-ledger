@@ -1,4 +1,5 @@
 import os
+import json
 import sqlite3
 import tempfile
 import threading
@@ -22,6 +23,103 @@ class ParserTests(unittest.TestCase):
         if app.DB_PATH.exists():
             app.DB_PATH.unlink()
         app.init_db()
+
+    def test_deepseek_semantic_completion_only_fills_missing_fields_and_marks_review(self):
+        previous_key, previous_open = app.DEEPSEEK_API_KEY, app.urlopen
+        sent = []
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+            def read(self, _):
+                return json.dumps({"choices": [{"message": {"content": json.dumps({
+                    "category": "meal", "location": "兰州黄河边", "item": "牛肉面", "full_tank": None,
+                })}}]}).encode()
+
+        def fake_open(request, timeout):
+            sent.append((request, timeout))
+            return Response()
+
+        try:
+            app.DEEPSEEK_API_KEY = "test-key-not-a-real-secret"
+            app.urlopen = fake_open
+            parsed = app.parse_text("花了30元", ai_enhance=True)
+        finally:
+            app.DEEPSEEK_API_KEY, app.urlopen = previous_key, previous_open
+
+        self.assertEqual(parsed["recognized"]["category"], "meal")
+        self.assertEqual(parsed["recognized"]["location"], "兰州黄河边")
+        self.assertEqual(parsed["recognized"]["item"], "牛肉面")
+        self.assertEqual(parsed["recognized"]["amount"], 30)
+        self.assertEqual(parsed["field_meta"]["category"]["state"], "review")
+        self.assertEqual(parsed["field_meta"]["amount"]["state"], "certain")
+        self.assertEqual(parsed["recognition_notice"], "已用 DeepSeek 补全口语字段，请核对标注内容")
+        self.assertEqual(parsed["records"][0]["field_meta"]["item"]["state"], "review")
+        self.assertEqual(len(sent), 1)
+        self.assertNotIn("test-key-not-a-real-secret", sent[0][0].data.decode())
+
+    def test_deepseek_failure_or_invalid_json_falls_back_to_local_rules(self):
+        previous_key, previous_open = app.DEEPSEEK_API_KEY, app.urlopen
+        try:
+            app.DEEPSEEK_API_KEY = "test-key-not-a-real-secret"
+
+            def failed(*_, **__):
+                raise TimeoutError("network unavailable")
+
+            app.urlopen = failed
+            parsed = app.parse_text("花了30元", ai_enhance=True)
+        finally:
+            app.DEEPSEEK_API_KEY, app.urlopen = previous_key, previous_open
+        self.assertIsNone(parsed["recognized"]["category"])
+        self.assertEqual(parsed["recognized"]["amount"], 30)
+        self.assertNotIn("recognition_notice", parsed)
+
+    def test_deepseek_malformed_response_and_fuel_category_keep_local_safety_rules(self):
+        previous_key, previous_open = app.DEEPSEEK_API_KEY, app.urlopen
+
+        class Response:
+            def __init__(self, body):
+                self.body = body
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def read(self, _): return self.body
+
+        try:
+            app.DEEPSEEK_API_KEY = "test-key-not-a-real-secret"
+            for malformed in (b"[]", b'{"choices":[{"message":null}]}',
+                              b'{"choices":[{"message":{"content":"{\\\"category\\\":[]}"}}]}'):
+                app.urlopen = lambda *_args, body=malformed, **_kwargs: Response(body)
+                parsed = app.parse_text("花了30元", ai_enhance=True)
+                self.assertIsNone(parsed["recognized"]["category"])
+                self.assertNotIn("recognition_notice", parsed)
+
+            body = json.dumps({"choices": [{"message": {"content": json.dumps({
+                "category": "fuel", "location": "大柴旦", "item": None, "full_tank": None,
+            })}}]}).encode()
+            app.urlopen = lambda *_args, **_kwargs: Response(body)
+            parsed = app.parse_text("灌了98号，460元，45升，当前里程33500", ai_enhance=True)
+        finally:
+            app.DEEPSEEK_API_KEY, app.urlopen = previous_key, previous_open
+        fields = parsed["recognized"]
+        self.assertEqual((fields["category"], fields["fuel_grade"], fields["fuel_liters"], fields["odometer"]),
+                         ("fuel", 98, 45, 33500))
+        self.assertFalse(any(gap["field"] == "category" for gap in parsed["missing"]))
+        self.assertEqual(fields["amount"], 460)
+
+    def test_silent_parse_never_calls_deepseek(self):
+        previous_key, previous_open = app.DEEPSEEK_API_KEY, app.urlopen
+        try:
+            app.DEEPSEEK_API_KEY = "test-key-not-a-real-secret"
+            app.urlopen = lambda *_args, **_kwargs: self.fail("silent parsing must not make an AI request")
+            parsed = app.parse_text("花了30元", ai_enhance=False)
+        finally:
+            app.DEEPSEEK_API_KEY, app.urlopen = previous_key, previous_open
+        self.assertEqual(parsed["recognized"]["amount"], 30)
+        self.assertNotIn("recognition_notice", parsed)
 
     def test_fuel_defaults_to_95_and_lists_metric_gaps(self):
         result = app.parse_text("在广元加了500元汽油")
@@ -1562,7 +1660,7 @@ class ParserTests(unittest.TestCase):
         self.assertNotIn("2026-09-21", by_date)
         self.assertEqual((by_date["2026-09-22"]["day_number"], by_date["2026-09-22"]["spend"]), (3, 260))
         report = app.dashboard(trip["id"])
-        self.assertEqual(report["app_version"], "3.1.3")
+        self.assertEqual(report["app_version"], "3.2.0")
         self.assertEqual(sum(day["spend"] for day in report["days"]), report["total_spend"])
 
     def test_v21_day_route_requires_active_trip_and_excel_has_daily_sheet(self):

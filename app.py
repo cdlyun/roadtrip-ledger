@@ -16,14 +16,20 @@ from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from xml.sax.saxutils import escape
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
 DB_PATH = Path(os.environ.get("ROADTRIP_DB", ROOT / "data" / "roadtrip.db"))
 PORT = int(os.environ.get("PORT", "8080"))
-APP_VERSION = "3.1.3"
+APP_VERSION = "3.2.0"
 SCHEMA_VERSION = 31
+# 可选的语义增强：密钥只从运行环境读取，绝不进入数据库、导出文件或日志。
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-flash").strip() or "deepseek-flash"
+DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 
 CATEGORIES = {
     "fuel": ("油费", ("加油", "汽油", "油价", "95号", "98号", "95#", "98#")),
@@ -530,31 +536,89 @@ def field_meta(fields: dict, gaps: list[dict], derived: list[str], raw_text: str
     return result
 
 
-def parse_text(text: str, _single: bool = False) -> dict:
-    """从手机本地转写文字中提取费用，再用确定性规则生成缺失项。"""
-    text = " ".join(str(text or "").strip().split())
-    # 仅将数字之间的全角逗号标准化，不影响中文语句分隔符。
-    text = re.sub(r"(?<=\d)，(?=\d{3}(?:\D|$))", ",", text)
-    if not _single:
-        chunks = safe_split_records(text)
-        if chunks:
-            records = [parse_text(chunk, _single=True) for chunk in chunks]
-            # “在广元午餐30元，晚餐50元”继承已明确的地点；不会猜测新的地点。
-            last_location = None
-            for record in records:
-                if record["recognized"].get("location"):
-                    last_location = record["recognized"]["location"]
-                elif last_location:
-                    record["recognized"]["location"] = last_location
-                    record["field_meta"]["location"] = {"state": "review", "value": None,
-                                                               "reason": "沿用上一笔明确地点，请确认", "evidence": last_location}
-            # 保留旧客户端所依赖的提示字段，但它不是阻断：新版会逐条确认 records 后提交。
-            return {"raw_text": text, "recognized": records[0]["recognized"],
-                    "missing": [missing("multiple_entries", "已拆分多笔消费", "info", "已识别为多笔，请逐笔确认后保存")],
-                    "derived_fields": [], "field_meta": records[0]["field_meta"], "records": records,
-                    "can_save": all(record["can_save"] for record in records)}
-    category, label = detect_category(text)
-    amount = expense_amount(text)
+def deepseek_semantic_fields(text: str) -> dict | None:
+    """可选地补全口语中的语义字段；任何网络或格式问题都静默交回本地规则。
+
+    只发送用户已在输入框确认的转写文字。请求和响应均不会写入日志，模型也不
+    接触账本、GPS、行程或任何密钥以外的数据。
+    """
+    if not DEEPSEEK_API_KEY or not text or len(text) > 2000:
+        return None
+    schema = {
+        "category": "fuel|toll|parking|lodging|meal|ticket|daily|transport|service|clothing|shopping|vehicle|other|null",
+        "location": "string|null",
+        "item": "string|null",
+        "full_tank": "true|false|null",
+    }
+    payload = {
+        "model": DEEPSEEK_MODEL,
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": (
+                "你是中文自驾消费文字的字段补全器。只返回一个 JSON 对象，不能包含 Markdown 或解释。"
+                f"JSON 字段契约：{json.dumps(schema, ensure_ascii=False)}。"
+                "只根据原文判断；不猜测金额、升数、里程、时间或地点。分类不确定则 null；"
+                "location 只保留发生消费的地点或商户名；item 只保留消费内容；full_tank 仅在原文明说加满或未加满时给布尔值。"
+            )},
+            {"role": "user", "content": text},
+        ],
+    }
+    try:
+        request = Request(
+            DEEPSEEK_API_URL,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urlopen(request, timeout=8) as response:
+            body = response.read(16 * 1024).decode("utf-8")
+        outer = json.loads(body)
+        if not isinstance(outer, dict):
+            return None
+        choices = outer.get("choices")
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+            return None
+        message = choices[0].get("message")
+        if not isinstance(message, dict) or not isinstance(message.get("content"), str):
+            return None
+        content = message["content"]
+        candidate = json.loads(content)
+    except (HTTPError, URLError, TimeoutError, OSError, ValueError, KeyError, IndexError, TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(candidate, dict):
+        return None
+    result = {}
+    category = candidate.get("category")
+    if isinstance(category, str) and category in CATEGORIES:
+        result["category"] = category
+    for name in ("location", "item"):
+        value = candidate.get(name)
+        if isinstance(value, str):
+            value = " ".join(value.split()).strip(" ，,。；;：:")
+            # 防止模型把段落、控制字符或无关 JSON 填进表单。
+            if value and len(value) <= 80 and not any(ord(char) < 32 for char in value):
+                result[name] = value
+    if isinstance(candidate.get("full_tank"), bool):
+        result["full_tank"] = candidate["full_tank"]
+    return result or None
+
+
+def semantic_help_needed(fields: dict) -> bool:
+    """仅在本地规则存在语义空缺时，才允许把转写文字交给联网模型。"""
+    category = fields.get("category")
+    return bool(
+        not category
+        or not fields.get("location")
+        or (category != "fuel" and not fields.get("item"))
+    )
+
+
+def fuel_details(text: str) -> dict:
+    """从原句提取油费数值，独立于类别判断，供 AI 补全“油费”时复用。"""
     spoken_number = rf"({NUMBER_TOKEN})"
     liters = number(spoken_number + r"\s*(?:升(?!数)|[Ll])", text)
     if liters is None:
@@ -587,10 +651,107 @@ def parse_text(text: str, _single: bool = False) -> dict:
     grade = None if grade_invalid or grade_conflict else (98 if 98 in mentioned_grades else 95)
     not_full_pattern = r"(?:没(?:有)?加满|未加满|没有满油|不是满油)"
     full_tank = True if re.search(r"(?:加满|满油)", text) else (False if re.search(not_full_pattern, text) else None)
-    # 先识别“没加满”，避免其中的“加满”被误判。没有明确口述时
-    # 保持未确认，不能因为是油费而擅自当成满箱区间。
     if re.search(not_full_pattern, text):
         full_tank = False
+    return {"liters": liters, "unit_price": unit_price, "odometer": odometer, "grade": grade,
+            "grade_invalid": grade_invalid, "grade_conflict": grade_conflict, "full_tank": full_tank}
+
+
+def enrich_parsed_text(result: dict, text: str) -> dict:
+    """将模型结果作为待确认的补全，而不是让模型直接决定入账字段。"""
+    # 最小化外发：规则已经完整识别的句子不需要再调用模型。
+    fields = result["recognized"]
+    if not semantic_help_needed(fields):
+        return result
+    suggested = deepseek_semantic_fields(text)
+    if not suggested:
+        return result
+    accepted = []
+    # 已由确定性规则识别出的分类不被网络模型推翻；AI 只补全规则无法判断的语义。
+    if not fields.get("category") and suggested.get("category"):
+        fields["category"] = suggested["category"]
+        fields["category_label"] = CATEGORIES[suggested["category"]][0]
+        accepted.append("category")
+        if suggested["category"] == "fuel":
+            # AI 只确认这是“油费”；油号、升数、里程等精确值必须重新从原句提取。
+            details = fuel_details(text)
+            fields.update({
+                "fuel_grade": details["grade"], "fuel_liters": details["liters"],
+                "fuel_unit_price": details["unit_price"], "odometer": details["odometer"],
+                "full_tank": details["full_tank"],
+            })
+    for name in ("location", "item"):
+        if not fields.get(name) and suggested.get(name):
+            fields[name] = suggested[name]
+            accepted.append(name)
+    if "item" in accepted:
+        fields["note"] = fields["item"]
+        accepted.append("note")
+    if fields.get("category") == "fuel" and fields.get("full_tank") is None and "full_tank" in suggested:
+        fields["full_tank"] = suggested["full_tank"]
+        accepted.append("full_tank")
+    if not accepted:
+        return result
+
+    # 补全类别后，要把原来“无法识别类别”时未生成的建议项补回来。
+    gaps = [gap for gap in result["missing"] if gap["field"] not in accepted]
+    category = fields.get("category")
+    if category and not fields.get("location") and not any(gap["field"] == "location" for gap in gaps):
+        gaps.append(missing("location", "消费地点", "optional", "用于查看路线上的花费分布"))
+    if category and category != "fuel" and not fields.get("item") and not any(gap["field"] == "item" for gap in gaps):
+        gaps.append(missing("item", "消费内容", "optional", "用于说明具体买了什么或支付了什么"))
+    if category == "fuel" and "category" in accepted:
+        details = fuel_details(text)
+        if details["grade_conflict"]:
+            gaps.append(missing("fuel_grade", "确认油号", "required", "同时识别到95号和98号，请确认本次加油油号"))
+        elif details["grade_invalid"]:
+            gaps.append(missing("fuel_grade", "确认油号", "required", "只支持95号或98号汽油"))
+        if details["liters"] is None:
+            gaps.append(missing("fuel_liters", "加油升数", "metric", "缺少后无法计算实时百公里油耗"))
+        if details["odometer"] is None:
+            gaps.append(missing("odometer", "当前里程", "metric", "缺少后无法计算实时里程和每公里成本"))
+    result["missing"] = gaps
+    result["field_meta"] = field_meta(fields, gaps, result["derived_fields"], text)
+    for name in accepted:
+        result["field_meta"][name] = {
+            "state": "review", "value": fields.get(name),
+            "reason": "由 DeepSeek 语义补全，请确认", "evidence": None,
+        }
+    result["can_save"] = not any(gap["level"] == "required" for gap in gaps)
+    result["ai_enhanced_fields"] = accepted
+    result["recognition_notice"] = "已用 DeepSeek 补全口语字段，请核对标注内容"
+    return result
+
+
+def parse_text(text: str, _single: bool = False, ai_enhance: bool = False) -> dict:
+    """从手机本地转写文字中提取费用，再用确定性规则生成缺失项。"""
+    text = " ".join(str(text or "").strip().split())
+    # 仅将数字之间的全角逗号标准化，不影响中文语句分隔符。
+    text = re.sub(r"(?<=\d)，(?=\d{3}(?:\D|$))", ",", text)
+    if not _single:
+        chunks = safe_split_records(text)
+        if chunks:
+            records = [parse_text(chunk, _single=True, ai_enhance=ai_enhance) for chunk in chunks]
+            # “在广元午餐30元，晚餐50元”继承已明确的地点；不会猜测新的地点。
+            last_location = None
+            for record in records:
+                if record["recognized"].get("location"):
+                    last_location = record["recognized"]["location"]
+                elif last_location:
+                    record["recognized"]["location"] = last_location
+                    record["field_meta"]["location"] = {"state": "review", "value": None,
+                                                               "reason": "沿用上一笔明确地点，请确认", "evidence": last_location}
+            # 保留旧客户端所依赖的提示字段，但它不是阻断：新版会逐条确认 records 后提交。
+            return {"raw_text": text, "recognized": records[0]["recognized"],
+                    "missing": [missing("multiple_entries", "已拆分多笔消费", "info", "已识别为多笔，请逐笔确认后保存")],
+                    "derived_fields": [], "field_meta": records[0]["field_meta"], "records": records,
+                    "can_save": all(record["can_save"] for record in records)}
+    category, label = detect_category(text)
+    amount = expense_amount(text)
+    fuel = fuel_details(text)
+    liters, unit_price, odometer = fuel["liters"], fuel["unit_price"], fuel["odometer"]
+    grade, grade_invalid, grade_conflict, full_tank = (
+        fuel["grade"], fuel["grade_invalid"], fuel["grade_conflict"], fuel["full_tank"])
 
     location = None
     m = re.search(r"(?:地点|位置)\s*(?:是|在|为)?\s*[:：]?\s*([^，,。；;]+?)(?=\s*(?:买了|购买|消费内容|消费项目|支付|实付|金额|花费|人数|住了|升数|当前里程|里程|记录时间|加(?:了)?\s*(?:95|98|九五|九八|九十五|九十八)?\s*(?:号|#)?\s*(?:汽油|油)|$))", text)
@@ -714,7 +875,15 @@ def parse_text(text: str, _single: bool = False) -> dict:
         "can_save": not any(x["level"] == "required" for x in gaps),
     }
     result["records"] = [dict(result)]
-    return result
+    # DeepSeek 只做联网时的可选语义补全；无密钥、断网、超时或返回异常时，
+    # 返回值与原先纯本地规则完全一致。
+    enriched = enrich_parsed_text(result, text) if ai_enhance else result
+    if not ai_enhance and DEEPSEEK_API_KEY and semantic_help_needed(enriched["recognized"]):
+        # 只告知前端“可主动增强”；自动输入防抖不触发外部请求。
+        enriched["ai_enhancement_available"] = True
+    # records 与顶层都要看到同一份补全后的字段和待核对元数据。
+    enriched["records"] = [{key: value for key, value in enriched.items() if key != "records"}]
+    return enriched
 
 
 def rowdict(row):
@@ -1286,7 +1455,7 @@ def prepare_entry(db, payload: dict, exclude_entry_id=None, fallback_raw_text=""
         raise ValueError("行程信息无效") from exc
     raw_text = str(payload.get("raw_text") or fallback_raw_text or payload.get("note") or "").strip()
     fields = payload.get("recognized") if isinstance(payload.get("recognized"), dict) else payload
-    checked = parse_text(raw_text) if raw_text else None
+    checked = parse_text(raw_text, ai_enhance=False) if raw_text else None
     if raw_text and UNSUPPORTED_FLOW_RE.search(raw_text):
         raise ValueError("MVP 尚不支持退款和押金，不能当作普通消费入账")
     if checked and not checked["can_save"]:
@@ -2206,7 +2375,8 @@ location.replace("/?factory_reset="+Date.now())})().catch(()=>location.replace("
             if self.path == "/api/trash/purge-client":
                 return self.json_response(permanently_purge_client(self.body()))
             if self.path == "/api/parse":
-                return self.json_response(parse_text(self.body().get("text", "")))
+                payload = self.body()
+                return self.json_response(parse_text(payload.get("text", ""), ai_enhance=payload.get("ai_enhance") is True))
             if self.path == "/api/trips":
                 return self.json_response(create_trip(self.body()), HTTPStatus.CREATED)
             if self.path == "/api/entries":
