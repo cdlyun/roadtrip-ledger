@@ -124,7 +124,24 @@ class ParserTests(unittest.TestCase):
     def test_terminal_bare_amount_requires_a_clear_nonfuel_expense(self):
         meal = app.parse_text("吃了一碗面 30")
         self.assertEqual((meal["recognized"]["category"], meal["recognized"]["amount"]), ("meal", 30))
+        self.assertEqual((meal["recognized"]["item"], meal["recognized"]["note"]), ("一碗面", "一碗面"))
         self.assertTrue(meal["can_save"])
+
+        # 只去掉实际被当作裸金额的末尾数字，保留消费内容中的数量。
+        skewers = app.parse_text("吃了2串烤肉 30")
+        self.assertEqual(skewers["recognized"]["item"], "2串烤肉")
+
+        # 带货币单位继续沿用既有清理规则，而不是裸金额兜底。
+        priced = app.parse_text("吃了一碗面 30元")
+        self.assertEqual((priced["recognized"]["amount"], priced["recognized"]["item"]), (30, "一碗面"))
+
+        # 已有明确金额时，末尾数字不是金额来源，可能是型号或尺码，必须保留。
+        model = app.parse_text("花了200元，买了衣服 型号 30")
+        self.assertEqual((model["recognized"]["amount"], model["recognized"]["item"]),
+                         (200, "衣服 型号 30"))
+        size = app.parse_text("付款200元，买鞋子 尺码 42")
+        self.assertEqual((size["recognized"]["amount"], size["recognized"]["item"]),
+                         (200, "鞋子 尺码 42"))
 
         toll = app.parse_text("ETC 126")
         self.assertEqual((toll["recognized"]["category"], toll["recognized"]["amount"]), ("toll", 126))
@@ -1689,7 +1706,7 @@ class ParserTests(unittest.TestCase):
         self.assertNotIn("2026-09-21", by_date)
         self.assertEqual((by_date["2026-09-22"]["day_number"], by_date["2026-09-22"]["spend"]), (3, 260))
         report = app.dashboard(trip["id"])
-        self.assertEqual(report["app_version"], "3.2.1")
+        self.assertEqual(report["app_version"], "3.2.2")
         self.assertEqual(sum(day["spend"] for day in report["days"]), report["total_spend"])
 
     def test_v21_day_route_requires_active_trip_and_excel_has_daily_sheet(self):

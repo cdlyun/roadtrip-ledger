@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
 DB_PATH = Path(os.environ.get("ROADTRIP_DB", ROOT / "data" / "roadtrip.db"))
 PORT = int(os.environ.get("PORT", "8080"))
-APP_VERSION = "3.2.1"
+APP_VERSION = "3.2.2"
 SCHEMA_VERSION = 31
 # 可选的语义增强：密钥只从运行环境读取，绝不进入数据库、导出文件或日志。
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()
@@ -267,6 +267,30 @@ def number(pattern: str, text: str):
         return cn_number(value)
 
 
+def terminal_bare_expense_token(text: str, category: str | None) -> str | None:
+    """返回可安全当作普通消费金额的末尾无单位数字。
+
+    这是语音转写漏掉“元”时的窄兜底。调用方可复用同一个令牌清理消费内容，
+    避免金额已识别而“吃了一碗面 30”仍把 30 留在物品名称中。
+    """
+    if not category or category == "fuel":
+        return None
+    bare = re.search(
+        r"(?:^|[\s，,。；;])((?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?))\s*$",
+        text,
+    )
+    if not bare:
+        return None
+    before = text[:bare.start(1)]
+    protected_context = (
+        r"(?:油号|汽油|加油|升数|加油量|当前里程|里程表|表显|里程|"
+        r"人数|人|晚数|晚|时间|日期|商品编号|房间号|编号|货号)"
+        r"\s*(?:(?:是|为)\s*)?(?:[:：]\s*)?$"
+        r"|\d{1,2}:\s*$"
+    )
+    return None if re.search(protected_context, before) else bare.group(1)
+
+
 def expense_amount(text: str, category: str | None = None):
     """提取实付金额，明确排除“8元/升”和“8元每升”类单价。
 
@@ -324,18 +348,9 @@ def expense_amount(text: str, category: str | None = None):
     # 末尾独立数字视为金额；不接受贴在商品后的数字，以免把“2号”等内容
     # 误判成金额。字段标签附近的数值（里程、升数、人数、晚数、时间）同样
     # 不参与兜底，确保加油及行程指标绝不被当作支出。
-    if category and category != "fuel":
-        bare = re.search(r"(?:^|[\s，,。；;])((?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?))\s*$", text)
-        if bare:
-            before = text[:bare.start(1)]
-            protected_context = (
-                r"(?:油号|汽油|加油|升数|加油量|当前里程|里程表|表显|里程|"
-                r"人数|人|晚数|晚|时间|日期|商品编号|房间号|编号|货号)"
-                r"\s*(?:(?:是|为)\s*)?(?:[:：]\s*)?$"
-                r"|\d{1,2}:\s*$"
-            )
-            if not re.search(protected_context, before):
-                return parsed(bare.group(1))
+    bare_token = terminal_bare_expense_token(text, category)
+    if bare_token is not None:
+        return parsed(bare_token)
     return None
 
 
@@ -769,7 +784,12 @@ def parse_text(text: str, _single: bool = False, ai_enhance: bool = False) -> di
                     "derived_fields": [], "field_meta": records[0]["field_meta"], "records": records,
                     "can_save": all(record["can_save"] for record in records)}
     category, label = detect_category(text)
+    # 无分类调用只会匹配带金额标签/货币单位的既有规则，可作为来源标记。
+    # 只有它未命中且分类版命中末尾裸数字，才允许从消费内容移除该数字。
+    explicit_amount = expense_amount(text)
     amount = expense_amount(text, category)
+    bare_amount_token = terminal_bare_expense_token(text, category)
+    bare_amount_used = explicit_amount is None and amount is not None and bare_amount_token is not None
     fuel = fuel_details(text)
     liters, unit_price, odometer = fuel["liters"], fuel["unit_price"], fuel["odometer"]
     grade, grade_invalid, grade_conflict, full_tank = (
@@ -836,6 +856,14 @@ def parse_text(text: str, _single: bool = False, ai_enhance: bool = False) -> di
         item_match = re.search(r"((?:打车|网约车|出租车)(?:去|到|前往)?[^，,。；;]*)", text)
     if item_match:
         item = clean_item_text(item_match.group(1))
+        # 仅移除被上述窄兜底识别为金额的同一个末尾令牌；商品数量、规格、
+        # 带货币单位的金额以及所有字段编号不会命中 bare_amount_token。
+        if item and bare_amount_used:
+            item = re.sub(
+                rf"(?:[\s，,。；;])+{re.escape(bare_amount_token)}\s*$",
+                "",
+                item,
+            ).strip(" ，,。；;") or None
     if not item and category:
         defaults = {
             "toll": r"(?:ETC|过路费|高速费|通行费|路桥费)",
