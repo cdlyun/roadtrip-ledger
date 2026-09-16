@@ -56,6 +56,8 @@ button,.export-link{min-height:48px}.topbar{gap:12px}.topbar>div{min-width:0}.to
 
 /* The sheet body scrolls, but its dismiss affordance remains in a 48px target. */
 .bottom-sheet{overscroll-behavior:contain}
+.bottom-sheet{bottom:var(--visual-bottom-inset,0px);max-height:min(calc(var(--visual-height,100vh) - var(--safe-top) - 16px),760px)}
+.bottom-sheet--small{max-height:min(calc(var(--visual-height,100vh) - var(--safe-top) - 32px),760px)}
 .sheet-header{position:sticky;top:-10px;z-index:2;display:grid;grid-template-columns:48px minmax(0,1fr) 48px;align-items:center;min-height:58px;margin:-10px -20px 4px;padding:10px 14px 0;background:var(--paper);border-radius:22px 22px 0 0}
 .sheet-header .sheet-handle{grid-column:2;margin:0 auto}
 .sheet-header .sheet-close{position:static;grid-column:3;grid-row:1;justify-self:end;width:48px;height:48px;min-height:48px}

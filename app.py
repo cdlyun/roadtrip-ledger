@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
 DB_PATH = Path(os.environ.get("ROADTRIP_DB", ROOT / "data" / "roadtrip.db"))
 PORT = int(os.environ.get("PORT", "8080"))
-APP_VERSION = "3.1.0"
+APP_VERSION = "3.1.3"
 SCHEMA_VERSION = 31
 
 CATEGORIES = {
@@ -37,7 +37,7 @@ CATEGORIES = {
     "service": ("旅行服务", ("保险", "导游", "寄存", "流量")),
     "clothing": ("衣物", ("衣服", "衣物", "鞋子", "帽子", "外套", "裤子", "买鞋")),
     "shopping": ("购物特产", ("特产", "伴手礼", "纪念品", "购物", "买东西", "采购", "超市")),
-    "vehicle": ("车辆异常", ("修车", "维修", "补胎", "拖车", "救援", "罚款", "违章")),
+    "vehicle": ("车辆费用", ("修车", "维修", "补胎", "拖车", "救援", "罚款", "违章")),
     "other": ("其他", ("其他", "杂费", "未分类")),
 }
 CORE_CATEGORIES = {"fuel", "toll", "parking", "lodging", "meal", "ticket", "daily", "transport", "service"}
@@ -1738,7 +1738,9 @@ def dashboard(trip_id: int) -> dict:
     total = cents_to_amount(sum(row_amount_cents(row) for row in rows))
     by_category = {}
     for r in rows:
-        label = r["category_label"]
+        # 分类键是稳定统计口径；旧记录曾将 vehicle 写为“车辆异常”，因此
+        # 仪表盘按当前键映射归并，避免同一类别拆成两个统计项。
+        label = CATEGORIES.get(r["category"], (r["category_label"],))[0]
         by_category[label] = cents_to_amount(to_cents(by_category.get(label, 0)) + row_amount_cents(r))
     core_cash = cents_to_amount(sum(row_amount_cents(r) for r in rows if r["category"] in CORE_CATEGORIES))
     non_fuel_core = cents_to_amount(sum(row_amount_cents(r) for r in rows if r["category"] in CORE_CATEGORIES and r["category"] != "fuel"))
@@ -1891,7 +1893,7 @@ def export_workbook(trip_id: int | None = None, include_all: bool = False) -> by
         full_tank = "" if entry["full_tank"] is None else ("是" if entry["full_tank"] else "否")
         detail_rows.append([
             entry["id"], entry["trip_id"], trip_names.get(entry["trip_id"], ""), entry["occurred_at"], entry.get("status"),
-            entry["category_label"], cents_to_amount(row_amount_cents(entry)), row_amount_cents(entry), entry["location"], entry.get("region"),
+            CATEGORIES.get(entry["category"], (entry["category_label"],))[0], cents_to_amount(row_amount_cents(entry)), row_amount_cents(entry), entry["location"], entry.get("region"),
             entry.get("latitude"), entry.get("longitude"), entry.get("gps_accuracy"), entry["note"], entry["fuel_grade"],
             entry["fuel_liters"], entry["fuel_unit_price"], cents_to_amount(entry.get("fuel_calculated_amount_cents")) if entry.get("fuel_calculated_amount_cents") is not None else None,
             cents_to_amount(entry.get("fuel_discount_cents")) if entry.get("fuel_discount_cents") is not None else None, entry["odometer"], full_tank,
@@ -1906,7 +1908,7 @@ def export_workbook(trip_id: int | None = None, include_all: bool = False) -> by
     trash_rows = [["类型", "记录ID", "行程ID", "行程名称", "删除时间", "可恢复至", "金额/里程", "摘要", "版本"]]
     for entry in deleted_entries:
         trash_rows.append(["消费", entry["id"], entry["trip_id"], trip_names.get(entry["trip_id"], ""), entry["deleted_at"],
-                           entry["delete_expires_at"], entry["amount"], entry["note"] or entry["category_label"], entry["version"]])
+                           entry["delete_expires_at"], entry["amount"], entry["note"] or CATEGORIES.get(entry["category"], (entry["category_label"],))[0], entry["version"]])
     for reading in deleted_readings:
         trash_rows.append(["里程", reading["id"], reading["trip_id"], trip_names.get(reading["trip_id"], ""), reading["deleted_at"],
                            reading["delete_expires_at"], reading["odometer"], reading["note"], reading["version"]])

@@ -360,6 +360,35 @@ class ParserTests(unittest.TestCase):
     def test_toll_is_displayed_as_etc(self):
         self.assertEqual(app.parse_text("过路费126元")["recognized"]["category_label"], "ETC")
 
+    def test_vehicle_label_is_canonical_for_new_legacy_dashboard_and_export(self):
+        trip = app.create_trip({"name": "车辆标签", "origin": "成都", "start_odometer": 10000})
+        created = app.save_entry({"trip_id": trip["id"], "raw_text": "补胎80元",
+            "recognized": {"category": "vehicle", "amount": 80}})
+        self.assertEqual(created["category_label"], "车辆费用")
+        entry_id, version, amount = created["id"], created["version"], created["amount"]
+        # Simulate the label written by the earlier release without changing its
+        # stable category key, amount, identity, or revision.
+        with app.connect() as db:
+            db.execute("UPDATE entries SET category_label='车辆异常' WHERE id=?", (entry_id,))
+        report = app.dashboard(trip["id"])
+        self.assertEqual(report["by_category"], {"车辆费用": 80})
+        self.assertEqual(report["vehicle_cost"], 0)
+        legacy = next(row for row in report["entries"] if row["id"] == entry_id)
+        self.assertEqual((legacy["id"], legacy["version"], legacy["amount"]), (entry_id, version, amount))
+        with zipfile.ZipFile(BytesIO(app.export_workbook(trip["id"]))) as workbook:
+            detail = workbook.read("xl/worksheets/sheet2.xml").decode()
+        self.assertIn("车辆费用", detail)
+        deleted = app.delete_entry(entry_id, {"trip_id": trip["id"], "client_id": created["client_id"], "client_revision": version + 1})
+        self.assertEqual((deleted["entry_id"], deleted["trip_id"]), (entry_id, trip["id"]))
+        with app.connect() as db:
+            deleted_row = db.execute("SELECT id,amount,version FROM entries WHERE id=?", (entry_id,)).fetchone()
+        self.assertEqual((deleted_row["id"], deleted_row["amount"], deleted_row["version"]), (entry_id, amount, version + 1))
+        with zipfile.ZipFile(BytesIO(app.export_workbook(trip["id"]))) as workbook:
+            trash = workbook.read("xl/worksheets/sheet4.xml").decode()
+        self.assertIn("车辆费用", trash)
+        revisions = app.record_revisions("entry", entry_id)
+        self.assertTrue(any("车辆异常" in row["snapshot"] for row in revisions))
+
     def test_all_expenses_are_in_cash_total_but_clothing_is_not_core(self):
         trip = app.create_trip({"name": "全消费", "origin": "成都", "start_odometer": 10000})
         app.save_entry({"trip_id": trip["id"], "raw_text": "买衣服300元",
@@ -1533,7 +1562,7 @@ class ParserTests(unittest.TestCase):
         self.assertNotIn("2026-09-21", by_date)
         self.assertEqual((by_date["2026-09-22"]["day_number"], by_date["2026-09-22"]["spend"]), (3, 260))
         report = app.dashboard(trip["id"])
-        self.assertEqual(report["app_version"], "3.1.0")
+        self.assertEqual(report["app_version"], "3.1.3")
         self.assertEqual(sum(day["spend"] for day in report["days"]), report["total_spend"])
 
     def test_v21_day_route_requires_active_trip_and_excel_has_daily_sheet(self):

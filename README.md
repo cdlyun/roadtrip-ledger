@@ -2,7 +2,11 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-当前应用版本：V3.1；前端静态资源修订：v36。
+当前应用版本：v3.1.3；前端静态资源修订：v3.1.3。
+
+## 版本规则
+
+产品版本与前端静态资源修订统一使用语义化版本号（`v主版本.次版本.修订版本`，例如 `v3.1.1`）；不再使用独立的递增资源编号。数据库 `schema_version` 仅随数据库迁移变化，和产品版本分开维护。
 
 部署在极空间 Docker 上、供 Android 浏览器使用的文字记账应用。手机在本地完成语音转文字，本应用只接收文字，不调用麦克风、不上传录音。
 
@@ -59,7 +63,10 @@
 ```bash
 python3 app.py
 python3 -m unittest discover -s tests -v
+# 已安装 Playwright 时：node tests/browser_full_acceptance.cjs
 ```
+
+`browser_full_acceptance.cjs` 会自行创建临时 SQLite 数据库和仅监听 `127.0.0.1` 的服务，覆盖完整数据生命周期、GPS mock 和窄/宽屏及软键盘可达性；不会连接生产服务或手机。
 
 打开 `http://127.0.0.1:8080`。
 

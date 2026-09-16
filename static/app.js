@@ -162,6 +162,7 @@ function setScreen(name){
 }
 function setSheetOpen(id,open){
   const sheet=$(`#${id}-sheet`), backdrop=$("#sheet-backdrop");
+  if(open) syncVisualViewport();
   if(open && !state.sheetRestorePending){
     state.sheetFocus=document.activeElement || null;
     state.sheetOverflow=document.body?.style?.overflow ?? "";
@@ -561,7 +562,7 @@ function renderTrash(){
   rows.forEach(item=>{
     const record=trashRecord(item), row=document.createElement("div"); row.className="history-item trash-row";
     const left=document.createElement("div"), title=document.createElement("b"), detail=document.createElement("small"), actions=document.createElement("div");
-    text(title,odometerTrash(item) ? `${record.odometer ?? "?"} km` : record.category_label || categoryLabels[record.category] || "记录"); text(detail,[record.location,record.note || record.item,displayEntryTime(item.deleted_at || record.deleted_at)].filter(Boolean).join(" · "));
+    text(title,odometerTrash(item) ? `${record.odometer ?? "?"} km` : categoryLabels[record.category] || record.category_label || "记录"); text(detail,[record.location,record.note || record.item,displayEntryTime(item.deleted_at || record.deleted_at)].filter(Boolean).join(" · "));
     actions.className="history-actions"; const restore=document.createElement("button"), remove=document.createElement("button"); restore.type="button"; restore.className="history-button"; text(restore,"恢复"); restore.addEventListener("click",()=>restoreTrash(item));
     remove.type="button"; remove.className="history-button danger"; text(remove,"永久删除"); remove.addEventListener("click",()=>permanentlyDeleteTrash(item));
     actions.append(restore,remove); left.append(title,detail); row.append(left,actions); box.append(row);
@@ -606,7 +607,7 @@ function applyDeleteSyncToTrash(doc,item,result){
 async function permanentlyDeleteTrash(item){
   if(!isCurrentTripTrash(item)){ renderTrash(); toast("这条回收站记录已过期或不属于当前行程"); return; }
   const initialRecord=trashRecord(item), entity=trashEntity(item);
-  const label=odometerTrash(item) ? `${initialRecord.odometer ?? "?"} km 里程记录` : `${initialRecord.category_label || categoryLabels[initialRecord.category] || "消费记录"}${initialRecord.amount!=null ? ` ${money(initialRecord.amount)}` : ""}`;
+  const label=odometerTrash(item) ? `${initialRecord.odometer ?? "?"} km 里程记录` : `${categoryLabels[initialRecord.category] || initialRecord.category_label || "消费记录"}${initialRecord.amount!=null ? ` ${money(initialRecord.amount)}` : ""}`;
   if(!confirm(`永久删除“${label}”？\n\n此操作不可恢复，该条记录的修改历史也会一并删除。`)) return;
   if(!state.online){ toast("永久删除必须联网确认，请连接网络后重试"); return; }
   try{
@@ -825,7 +826,7 @@ function renderDashboard(){
   d.entries.forEach(entry=>{
     const row=document.createElement("div"); row.className="history-item";
     const left=document.createElement("div"), title=document.createElement("b"), detail=document.createElement("small"), right=document.createElement("div"), amount=document.createElement("strong"), actions=document.createElement("div");
-    text(title,entry.category_label); text(detail,[displayEntryTime(entry.occurred_at),entry.location,entry.note || entry.raw_text].filter(Boolean).join(" · ")); text(amount,money(entry.amount));
+    text(title,categoryLabels[entry.category] || entry.category_label || "消费"); text(detail,[displayEntryTime(entry.occurred_at),entry.location,entry.note || entry.raw_text].filter(Boolean).join(" · ")); text(amount,money(entry.amount));
     actions.className="history-actions"; right.className="history-right";
     const edit=document.createElement("button"), remove=document.createElement("button"), revisions=document.createElement("button");
     edit.type="button"; edit.className="history-button"; text(edit,"修改");
@@ -845,7 +846,7 @@ function renderV21Overview(d){
     if(!entries.length){ const empty=document.createElement("p"); empty.className="empty"; text(empty,"第一笔消费会出现在这里。"); recent.append(empty); }
     entries.slice(0,3).forEach(entry=>{
       const row=document.createElement("div"), left=document.createElement("div"), title=document.createElement("b"), detail=document.createElement("small"), amount=document.createElement("strong"); row.className="history-item";
-      text(title,entry.category_label || categoryLabels[entry.category] || "消费"); text(detail,[entry.location,entry.note || entry.item,displayEntryTime(entry.occurred_at)].filter(Boolean).join(" · ")); text(amount,money(entry.amount)); left.append(title,detail); row.append(left,amount); recent.append(row);
+      text(title,categoryLabels[entry.category] || entry.category_label || "消费"); text(detail,[entry.location,entry.note || entry.item,displayEntryTime(entry.occurred_at)].filter(Boolean).join(" · ")); text(amount,money(entry.amount)); left.append(title,detail); row.append(left,amount); recent.append(row);
     });
   }
   const days=(state.days && state.days.length ? state.days : dayRecordsFromDashboard());
@@ -1242,6 +1243,22 @@ function sameNumber(left,right){
   if(left==null || right==null || left==="" || right==="") return left==null && right==null;
   return Math.abs(Number(left)-Number(right)) < 1e-6;
 }
+function normalizeLocalOccurredAt(value){
+  // 后端保存的是无时区的本地时间，允许表单分钟精度与服务端补齐的 :00
+  // 等价；Z、offset 和任何非法字符串都不能被悄悄归一化成同一个时间。
+  if(typeof value!=="string") return null;
+  const match=value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if(!match) return null;
+  const [,yearText,monthText,dayText,hourText,minuteText,secondText]=match;
+  const year=Number(yearText), month=Number(monthText), day=Number(dayText), hour=Number(hourText), minute=Number(minuteText), second=Number(secondText ?? "0");
+  const leap=year%4===0 && (year%100!==0 || year%400===0), days=[31,leap?29:28,31,30,31,30,31,31,30,31,30,31];
+  if(year<1 || month<1 || month>12 || day<1 || day>days[month-1] || hour>23 || minute>59 || second>59) return null;
+  return `${yearText}-${monthText}-${dayText}T${hourText}:${minuteText}:${String(second).padStart(2,"0")}`;
+}
+function sameLocalOccurredAt(left,right){
+  const normalizedLeft=normalizeLocalOccurredAt(left), normalizedRight=normalizeLocalOccurredAt(right);
+  return normalizedLeft!==null && normalizedRight!==null && normalizedLeft===normalizedRight;
+}
 function verifyEntryResponse(result,entryId,recognized,clientRevision,rawText=null){
   const record=result?.record || result;
   if(!record || Number(record.id)!==Number(entryId)) throw new Error("服务端未确认这次修改，请刷新后重试");
@@ -1254,7 +1271,7 @@ function verifyEntryResponse(result,entryId,recognized,clientRevision,rawText=nu
   ];
   for(const [field,actual,expected] of checks){
     if(actual===undefined) continue;
-    const equal=typeof expected==="number" || typeof actual==="number" ? sameNumber(actual,expected) : String(actual ?? "")===String(expected ?? "");
+    const equal=field==="occurred_at" ? sameLocalOccurredAt(actual,expected) : (typeof expected==="number" || typeof actual==="number" ? sameNumber(actual,expected) : String(actual ?? "")===String(expected ?? ""));
     if(!equal) throw new Error(`服务端未确认${field}修改，请刷新后重试`);
   }
   if(rawText!=null && record.raw_text!==undefined && String(record.raw_text)!==String(rawText)) throw new Error("服务端未确认原文修改，请刷新后重试");
@@ -1263,7 +1280,7 @@ function verifyEntryResponse(result,entryId,recognized,clientRevision,rawText=nu
 }
 
 async function removeEntry(entry){
-  if(!confirm(`确认删除“${entry.category_label} ${money(entry.amount)}”这笔记录？\n\n记录会进入回收站，30天内可以恢复。`)) return;
+  if(!confirm(`确认删除“${categoryLabels[entry.category] || entry.category_label || "消费"} ${money(entry.amount)}”这笔记录？\n\n记录会进入回收站，30天内可以恢复。`)) return;
   const queueItem={entity:"entry",op:"delete",client_id:entry.client_id || newClientId(),client_revision:Number(entry.client_revision||entry.version||1)+1,payload:{trip_id:state.trip.id,id:entry.id,client_id:entry.client_id || null},queued_at:new Date().toISOString(),updated_at:new Date().toISOString(),error:null};
   try{
     if(!state.online) throw Object.assign(new Error("offline"),{offline:true});
@@ -1521,10 +1538,21 @@ function ensureFullTankControl(){
   const note=$("#fuel-fields .field-note"); if(note) text(note,"实付、油价、升数、计算金额和优惠差额会分别保存。");
 }
 function syncVisualViewport(){
-  const height=window.visualViewport?.height || window.innerHeight;
-  document.documentElement?.style?.setProperty("--visual-height",`${Math.round(height)}px`);
+  const viewport=window.visualViewport, fallbackHeight=Number(window.innerHeight);
+  const rawHeight=Number(viewport?.height), rawOffset=Number(viewport?.offsetTop);
+  const hasViewportHeight=Number.isFinite(rawHeight) && rawHeight>0, hasLayoutHeight=Number.isFinite(fallbackHeight) && fallbackHeight>0;
+  // 浏览器 resize 期间 visualViewport 可能晚一帧才更新；使用两者较小值
+  // 既保留软键盘缩小的可视高度，也不会让过期的大值撑出短屏弹层。
+  const height=hasViewportHeight && hasLayoutHeight ? Math.min(rawHeight,fallbackHeight) : (hasViewportHeight ? rawHeight : (hasLayoutHeight ? fallbackHeight : 0));
+  const maxOffset=hasLayoutHeight ? Math.max(0,fallbackHeight-height) : Infinity;
+  const offsetTop=viewport && Number.isFinite(rawOffset) && rawOffset>=0 ? Math.min(rawOffset,maxOffset) : 0;
+  const visibleBottom=offsetTop+height;
+  const inset=viewport && Number.isFinite(fallbackHeight) ? Math.max(0,fallbackHeight-visibleBottom) : 0;
+  const root=document.documentElement?.style;
+  root?.setProperty("--visual-height",`${height}px`);
+  root?.setProperty("--visual-bottom-inset",`${inset}px`);
 }
-ensureFullTankControl(); syncVisualViewport(); window.visualViewport?.addEventListener("resize",syncVisualViewport);
+ensureFullTankControl(); syncVisualViewport(); window.visualViewport?.addEventListener("resize",syncVisualViewport); window.visualViewport?.addEventListener("scroll",syncVisualViewport); window.addEventListener?.("resize",syncVisualViewport);
 setScreen("home");
 
 fillSelect(); bootstrap();

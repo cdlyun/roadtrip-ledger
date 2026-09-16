@@ -2,7 +2,11 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-Current application version: V3.1. Frontend asset revision: v36.
+Current application version: v3.1.3. Frontend asset revision: v3.1.3.
+
+## Versioning
+
+The application and frontend asset revision use semantic versions (`vmajor.minor.patch`, for example `v3.1.1`); standalone incrementing asset revisions are no longer used. The database `schema_version` changes only with database migrations and is maintained separately.
 
 A text-based travel expense tracker deployed with Docker on a ZSpace NAS and used from an Android browser. Speech-to-text is handled locally on the phone: the app accepts text only, does not access the microphone, and does not upload recordings. This is English project documentation; the application interface and text parsing are designed for Chinese.
 
@@ -58,7 +62,10 @@ Vehicle cost and cost per kilometer update with valid records without requiring 
 ```bash
 python3 app.py
 python3 -m unittest discover -s tests -v
+# When Playwright is installed: node tests/browser_full_acceptance.cjs
 ```
+
+`browser_full_acceptance.cjs` creates its own temporary SQLite database and a loopback-only `127.0.0.1` server. It covers the full record lifecycle, GPS mocks, and narrow/wide viewport and software-keyboard reachability without connecting to production or a phone.
 
 Open `http://127.0.0.1:8080`.
 
