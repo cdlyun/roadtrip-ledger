@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-Current application version: v3.2.0. Frontend asset revision: v3.2.0.
+Current application version: v3.2.1. Frontend asset revision: v3.2.1.
 
 ## Versioning
 
@@ -10,7 +10,8 @@ The application and frontend asset revision use semantic versions (`vmajor.minor
 
 ## Release history
 
-- **v3.2.0 (current):** adds optional DeepSeek Flash semantic completion for transcribed text. Local rules, offline entry, and final save-time validation remain the baseline safeguards.
+- **v3.2.1 (current):** fixes terminal bare amounts when speech-to-text omits a currency unit, such as “吃了一碗面 30”, while conservatively excluding mileage, quantities, and identifiers.
+- **v3.2.0:** adds optional DeepSeek Flash semantic completion for transcribed text. Local rules, offline entry, and final save-time validation remain the baseline safeguards.
 - **v3.1.3:** completed local acceptance of the mobile UI, GPS, offline cache, Excel export, and the full ledger lifecycle; see the [current acceptance report](docs/testing/TEST-REVIEW-2026-09-16.md).
 - **v1.9 (sealed baseline):** the recoverable production baseline before V2.1 development. Its former `v27` label was a browser-cache revision, not a product version; see the [seal record](docs/releases/RELEASE-v1.9-FINAL-2026-09-15.md).
 

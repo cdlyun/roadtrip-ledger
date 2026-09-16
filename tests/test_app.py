@@ -121,6 +121,35 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(parsed["recognized"]["amount"], 30)
         self.assertNotIn("recognition_notice", parsed)
 
+    def test_terminal_bare_amount_requires_a_clear_nonfuel_expense(self):
+        meal = app.parse_text("吃了一碗面 30")
+        self.assertEqual((meal["recognized"]["category"], meal["recognized"]["amount"]), ("meal", 30))
+        self.assertTrue(meal["can_save"])
+
+        toll = app.parse_text("ETC 126")
+        self.assertEqual((toll["recognized"]["category"], toll["recognized"]["amount"]), ("toll", 126))
+
+        decimal = app.parse_text("在广元喝奶茶 18.5")
+        self.assertEqual(decimal["recognized"]["amount"], 18.5)
+
+    def test_terminal_bare_number_never_replaces_metrics_or_quantities(self):
+        # 油费的升数、油号、里程不能因漏说“元”而被误作金额。
+        for text in ("加98号汽油 45", "加油 升数45", "加油 当前里程 33500"):
+            self.assertIsNone(app.parse_text(text)["recognized"]["amount"], text)
+
+        # 已分类的普通消费也不能把人数、住宿晚数或时间字段误当金额。
+        for text in ("午餐 3人", "住宿 2晚", "午餐 12:30", "停车 当前里程 33500",
+                     "午餐 人数： 3", "住宿 晚数： 2", "停车 当前里程： 33500",
+                     "午餐 时间： 1230", "买衣服 商品编号 12345", "住宿 房间号 806",
+                     "停车 当前里程为 33500", "午餐 人数是 3", "买衣服 编号 12345",
+                     "买衣服 货号 12345"):
+            parsed = app.parse_text(text)
+            self.assertIsNone(parsed["recognized"]["amount"], text)
+            self.assertFalse(parsed["can_save"], text)
+
+        # 数字必须和消费内容分隔，避免把商品规格或编号当成金额。
+        self.assertIsNone(app.parse_text("吃了一碗面30")["recognized"]["amount"])
+
     def test_fuel_defaults_to_95_and_lists_metric_gaps(self):
         result = app.parse_text("在广元加了500元汽油")
         self.assertEqual(result["recognized"]["fuel_grade"], 95)
@@ -1660,7 +1689,7 @@ class ParserTests(unittest.TestCase):
         self.assertNotIn("2026-09-21", by_date)
         self.assertEqual((by_date["2026-09-22"]["day_number"], by_date["2026-09-22"]["spend"]), (3, 260))
         report = app.dashboard(trip["id"])
-        self.assertEqual(report["app_version"], "3.2.0")
+        self.assertEqual(report["app_version"], "3.2.1")
         self.assertEqual(sum(day["spend"] for day in report["days"]), report["total_spend"])
 
     def test_v21_day_route_requires_active_trip_and_excel_has_daily_sheet(self):

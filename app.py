@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
 DB_PATH = Path(os.environ.get("ROADTRIP_DB", ROOT / "data" / "roadtrip.db"))
 PORT = int(os.environ.get("PORT", "8080"))
-APP_VERSION = "3.2.0"
+APP_VERSION = "3.2.1"
 SCHEMA_VERSION = 31
 # 可选的语义增强：密钥只从运行环境读取，绝不进入数据库、导出文件或日志。
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()
@@ -267,8 +267,13 @@ def number(pattern: str, text: str):
         return cn_number(value)
 
 
-def expense_amount(text: str):
-    """提取实付金额，明确排除“8元/升”和“8元每升”类单价。"""
+def expense_amount(text: str, category: str | None = None):
+    """提取实付金额，明确排除“8元/升”和“8元每升”类单价。
+
+    对已识别为普通消费的一句话，兼容“吃了一碗面 30”这种末尾未说“元”
+    的转写。该兜底只接受以空格或标点分隔的末尾阿拉伯数字，且永不用于
+    油费；里程、升数、人数、晚数和时间等字段也不能触发它。
+    """
     def parsed(value):
         return float(value.replace(",", "")) if re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?", value) else cn_number(value)
 
@@ -314,6 +319,23 @@ def expense_amount(text: str):
         cn_matches.append(cn_number(match.group(1)))
     if cn_matches:
         return cn_matches[-1]
+
+    # 手机转写偶尔会漏掉“元”。仅在已经有明确的非油费消费分类时，将
+    # 末尾独立数字视为金额；不接受贴在商品后的数字，以免把“2号”等内容
+    # 误判成金额。字段标签附近的数值（里程、升数、人数、晚数、时间）同样
+    # 不参与兜底，确保加油及行程指标绝不被当作支出。
+    if category and category != "fuel":
+        bare = re.search(r"(?:^|[\s，,。；;])((?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?))\s*$", text)
+        if bare:
+            before = text[:bare.start(1)]
+            protected_context = (
+                r"(?:油号|汽油|加油|升数|加油量|当前里程|里程表|表显|里程|"
+                r"人数|人|晚数|晚|时间|日期|商品编号|房间号|编号|货号)"
+                r"\s*(?:(?:是|为)\s*)?(?:[:：]\s*)?$"
+                r"|\d{1,2}:\s*$"
+            )
+            if not re.search(protected_context, before):
+                return parsed(bare.group(1))
     return None
 
 
@@ -512,7 +534,7 @@ def safe_split_records(text: str) -> list[str] | None:
     for chunk in chunks:
         category, _ = detect_category(chunk)
         # 油费的附属字段段没有金额+分类，天然不通过；完整油费段可与另一笔消费拆开。
-        if not category or expense_amount(chunk) is None or multiple_consumption_amounts(chunk, category):
+        if not category or expense_amount(chunk, category) is None or multiple_consumption_amounts(chunk, category):
             return None
         accepted.append(chunk)
     return accepted if len(accepted) >= 2 else None
@@ -747,7 +769,7 @@ def parse_text(text: str, _single: bool = False, ai_enhance: bool = False) -> di
                     "derived_fields": [], "field_meta": records[0]["field_meta"], "records": records,
                     "can_save": all(record["can_save"] for record in records)}
     category, label = detect_category(text)
-    amount = expense_amount(text)
+    amount = expense_amount(text, category)
     fuel = fuel_details(text)
     liters, unit_price, odometer = fuel["liters"], fuel["unit_price"], fuel["odometer"]
     grade, grade_invalid, grade_conflict, full_tank = (

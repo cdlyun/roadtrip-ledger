@@ -6,12 +6,12 @@
   <meta name="theme-color" content="#0f5c56">
   <title>自驾账本</title>
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="stylesheet" href="/styles.css?v=3.2.0">
+  <link rel="stylesheet" href="/styles.css?v=3.2.1">
 </head>
 <body>
   <div class="app-shell" data-ui-version="3.1">
     <header class="topbar">
-      <div><span class="topbar-kicker">ROADTRIP LEDGER · v3.2.0</span><h1>自驾账本</h1></div>
+      <div><span class="topbar-kicker">ROADTRIP LEDGER · v3.2.1</span><h1>自驾账本</h1></div>
       <span id="connection" class="status">连接中</span>
     </header>
 
@@ -90,6 +90,6 @@
   </section>
   <section id="odometer-sheet" class="bottom-sheet bottom-sheet--small" aria-label="记录当前里程" aria-hidden="true"><div class="sheet-header"><div class="sheet-handle" aria-hidden="true"></div><button class="sheet-close" data-close-sheet="odometer" type="button" aria-label="关闭">×</button></div><section class="sheet-section"><span class="screen-kicker">车辆里程</span><h2>记录当前里程</h2><p class="hint">每天停车、出发或到达时记一次即可。</p><form id="odometer-form" class="form-stack"><label>当前里程<input name="odometer" required inputmode="decimal" type="number" min="0" step="0.1" placeholder="例如：33500"></label><label>记录时间<input name="occurred_at" type="datetime-local" step="1" required></label><label>地点（可选）<input name="location" placeholder="例如：大柴旦"></label><label>备注（可选）<input name="note" placeholder="停车、出发或到达时记录"></label><button class="primary" type="submit">保存里程</button></form></section></section>
   <div id="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=3.2.0" defer></script>
+  <script src="/app.js?v=3.2.1" defer></script>
 </body>
 </html>
