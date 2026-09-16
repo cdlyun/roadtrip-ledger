@@ -296,14 +296,11 @@ async function parseNaturalEntry({silent=false,token=null,rawText=null}={}){
 }
 function scheduleNaturalParse(){
   clearTimeout(state.naturalParseTimer);
-  const raw=String($("#entry-text")?.value || "").trim();
-  // 新输入会使上一请求失效；无论新文本长短，都要立刻还原按钮，
-  // 让用户可以手动识别简短文字而不会被旧请求的 busy 状态锁住。
+  // 输入中的语音转写会持续追加文字。这里仅废弃任何旧的解析请求，
+  // 绝不因停顿自动进入确认页；解析只能由用户提交“识别并确认”触发。
   const button=$("#parse-entry"); if(button){ button.disabled=false; text(button,"识别并确认"); }
-  const token=++state.naturalParseToken; state.naturalParsePending=raw;
-  // 避免每输入一个字就请求；停顿后自动进入核对页，按钮仍可立即触发。
-  if(raw.length<6){ state.naturalParsePending=""; return; }
-  state.naturalParseTimer=setTimeout(()=>parseNaturalEntry({silent:true,token,rawText:raw}),700);
+  state.naturalParseToken++;
+  state.naturalParsePending="";
 }
 function openOdometerSheet(){
   if(!state.trip){ toast("请先开始一段行程"); return; }

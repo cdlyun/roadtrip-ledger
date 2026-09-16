@@ -180,19 +180,22 @@ function syncResult(options){
   fetchImpl=async(path,options)=>{ fetchCalls.push({path,options}); return {ok:true,status:200,json:async()=>({raw_text:"兰州晚餐40元",recognized:{category:"meal",amount:40,location:"兰州",item:"羊肉串",occurred_at:"2026-09-15T18:00"},recognition_notice:"已用 DeepSeek 补全口语字段，请核对标注内容",missing:[],field_meta:{item:{state:"review"}}})}; };
   await nodes.get("#enhance-entry").dispatch("click"); assert.strictEqual(t.state.parsed.recognized.item,"羊肉串"); assert.strictEqual(nodes.get("#edit-source-text").classList.contains("hidden"),false); assert.strictEqual(nodes.get("#enhance-entry").classList.contains("hidden"),true); assert.strictEqual(t.state.reviewRecordClientIds[0],"enhance-success");
 
-  // 旧请求被新短文本取消后，识别按钮必须立即恢复，短文字仍可由用户手动提交。
-  resetStorage(); t.state.trip={id:7}; nodes.get("#parse-entry").disabled=true; nodes.get("#entry-text").value="吃面"; t.scheduleNaturalParse(); assert.strictEqual(nodes.get("#parse-entry").disabled,false);
+  // 语音转写会持续追加文字：即使超过旧的 700ms 防抖时长，输入阶段也只能
+  // 保存草稿，不能请求解析接口或跳到确认页；必须由用户明确点击才开始识别。
+  resetStorage(); t.state.trip={id:7}; let parseCalls=0;
+  nodes.get("#entry-card").classList.remove("hidden"); nodes.get("#review-card").classList.add("hidden");
+  fetchImpl=async(path,options)=>{ fetchCalls.push({path,options}); parseCalls++; return {ok:true,status:200,json:async()=>({raw_text:"从成都开车到西宁，1300公里过路费600元",recognized:{category:"toll",amount:600,item:"过路费",occurred_at:"2026-09-15T12:00"},missing:[],field_meta:{}})}; };
+  nodes.get("#entry-text").value="从成都开车到西宁，1300公里过路费6"; await nodes.get("#entry-text").dispatch("input");
+  await new Promise(resolve=>setTimeout(resolve,750));
+  assert.strictEqual(parseCalls,0); assert.strictEqual(t.state.parsed,null); assert.strictEqual(nodes.get("#review-card").classList.contains("hidden"),true);
+  nodes.get("#entry-text").value="从成都开车到西宁，1300公里过路费600元"; await nodes.get("#entry-text").dispatch("input");
+  await new Promise(resolve=>setTimeout(resolve,750));
+  assert.strictEqual(parseCalls,0); assert.strictEqual(t.state.parsed,null);
+  await nodes.get("#parse-form").dispatch("submit");
+  assert.strictEqual(parseCalls,1); assert.strictEqual(t.state.parsed.recognized.amount,600); assert.strictEqual(t.state.parsed.recognized.category,"toll");
 
-  // 旧请求在路上时，后输入的文字仍必须自动解析；旧响应不能覆盖最后一段文字。
-  resetStorage(); t.state.trip={id:7}; let automaticCalls=0, resolveOld, resolveNew;
-  const parseReply=(location,item,amount)=>({ok:true,status:200,json:async()=>({raw_text:`${location}${item}${amount}元`,recognized:{category:"meal",amount,location,item,occurred_at:"2026-09-15T12:00"},missing:[],field_meta:{category:{state:"recognized"},amount:{state:"recognized"}}})});
-  fetchImpl=async()=>new Promise(resolve=>{ automaticCalls++; if(automaticCalls===1) resolveOld=()=>resolve(parseReply("广元","米粉",30)); else resolveNew=()=>resolve(parseReply("兰州","牛肉面",40)); });
-  nodes.get("#entry-text").value="在广元午餐吃米粉 30 元"; t.scheduleNaturalParse(); await new Promise(resolve=>setTimeout(resolve,730)); assert.strictEqual(automaticCalls,1);
-  nodes.get("#entry-text").value="在兰州午餐吃牛肉面 40 元"; t.scheduleNaturalParse(); resolveOld(); await new Promise(resolve=>setTimeout(resolve,730)); assert.strictEqual(automaticCalls,2); resolveNew(); await new Promise(resolve=>setTimeout(resolve,0));
-  assert.strictEqual(t.state.parsed.recognized.location,"兰州"); assert.strictEqual(t.state.parsed.recognized.item,"牛肉面"); assert.strictEqual(t.state.parsed.recognized.amount,40);
-
-  // 切换到手动填写或关闭面板会取消定时识别，旧响应也会因 token 失效而被忽略。
-  resetStorage(); t.state.trip={id:7}; t.setEntryMode("natural"); nodes.get("#entry-text").value="在格尔木买水 8 元"; t.scheduleNaturalParse(); t.setEntryMode("manual"); await new Promise(resolve=>setTimeout(resolve,730)); assert.strictEqual(fetchCalls.length,0);
+  // 切换到手动填写或关闭面板只应取消旧状态，绝不触发解析。
+  resetStorage(); t.state.trip={id:7}; t.setEntryMode("natural"); nodes.get("#entry-text").value="在格尔木买水 8 元"; t.scheduleNaturalParse(); t.setEntryMode("manual"); await new Promise(resolve=>setTimeout(resolve,750)); assert.strictEqual(fetchCalls.length,0);
 
   // 多笔草稿恢复完整 records、当前索引和每笔固定 client_id，不重复生成编号。
   resetStorage(); t.state.trip={id:7}; const fixedRecords=[{recognized:{category:"meal",amount:30,item:"米粉"},field_meta:{amount:{state:"recognized"}}},{recognized:{category:"parking",amount:20,item:"停车费"},field_meta:{amount:{state:"review"}}}];
