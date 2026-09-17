@@ -59,6 +59,10 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(parsed["field_meta"]["amount"]["state"], "certain")
         self.assertEqual(parsed["recognition_notice"], "已用 DeepSeek 补全口语字段，请核对标注内容")
         self.assertEqual(parsed["records"][0]["field_meta"]["item"]["state"], "review")
+        self.assertEqual(parsed["ai_status"], {
+            "requested": True, "called": True, "used": True,
+            "reason": "completed", "enhanced_fields": ["category", "location", "item", "note"],
+        })
         self.assertEqual(len(sent), 1)
         self.assertNotIn("test-key-not-a-real-secret", sent[0][0].data.decode())
 
@@ -77,6 +81,10 @@ class ParserTests(unittest.TestCase):
         self.assertIsNone(parsed["recognized"]["category"])
         self.assertEqual(parsed["recognized"]["amount"], 30)
         self.assertNotIn("recognition_notice", parsed)
+        self.assertEqual(parsed["ai_status"], {
+            "requested": True, "called": True, "used": False,
+            "reason": "request_failed", "enhanced_fields": [],
+        })
 
     def test_deepseek_malformed_response_and_fuel_category_keep_local_safety_rules(self):
         previous_key, previous_open = app.DEEPSEEK_API_KEY, app.urlopen
@@ -120,12 +128,66 @@ class ParserTests(unittest.TestCase):
             app.DEEPSEEK_API_KEY, app.urlopen = previous_key, previous_open
         self.assertEqual(parsed["recognized"]["amount"], 30)
         self.assertNotIn("recognition_notice", parsed)
+        self.assertEqual(parsed["ai_status"]["reason"], "available_on_request")
+        self.assertFalse(parsed["ai_status"]["called"])
+
+    def test_ai_status_explains_local_and_unconfigured_paths_without_sensitive_data(self):
+        previous_key = app.DEEPSEEK_API_KEY
+        try:
+            app.DEEPSEEK_API_KEY = ""
+            incomplete = app.parse_text("花了30元")
+            complete = app.parse_text("兰州吃一碗拉面 300。")
+            requested = app.parse_text("花了30元", ai_enhance=True)
+        finally:
+            app.DEEPSEEK_API_KEY = previous_key
+
+        self.assertEqual(incomplete["ai_status"], {
+            "requested": False, "called": False, "used": False,
+            "reason": "not_configured", "enhanced_fields": [],
+        })
+        self.assertEqual(complete["ai_status"], {
+            "requested": False, "called": False, "used": False,
+            "reason": "local_fields_complete", "enhanced_fields": [],
+        })
+        self.assertEqual(requested["ai_status"], {
+            "requested": True, "called": False, "used": False,
+            "reason": "not_configured", "enhanced_fields": [],
+        })
+        self.assertNotIn("key", json.dumps(requested["ai_status"], ensure_ascii=False).lower())
+
+    def test_parse_api_returns_ai_status_contract(self):
+        previous_key = app.DEEPSEEK_API_KEY
+        responses = []
+        handler = app.Handler.__new__(app.Handler)
+        handler.path = "/api/parse"
+        handler.body = lambda: {"text": "兰州吃一碗拉面 300。", "ai_enhance": False}
+        handler.json_response = lambda body, status=200: responses.append((body, int(status)))
+        try:
+            app.DEEPSEEK_API_KEY = ""
+            handler.do_POST()
+        finally:
+            app.DEEPSEEK_API_KEY = previous_key
+
+        body, status = responses[0]
+        self.assertEqual(status, 200)
+        self.assertEqual(body["recognized"]["amount"], 300)
+        self.assertEqual(body["ai_status"], {
+            "requested": False, "called": False, "used": False,
+            "reason": "local_fields_complete", "enhanced_fields": [],
+        })
 
     def test_terminal_bare_amount_requires_a_clear_nonfuel_expense(self):
         meal = app.parse_text("吃了一碗面 30")
         self.assertEqual((meal["recognized"]["category"], meal["recognized"]["amount"]), ("meal", 30))
         self.assertEqual((meal["recognized"]["item"], meal["recognized"]["note"]), ("一碗面", "一碗面"))
         self.assertTrue(meal["can_save"])
+
+        for text in ("兰州吃一碗拉面 300。", "兰州吃一碗拉面 300 ."):
+            punctuated = app.parse_text(text)
+            self.assertEqual(
+                (punctuated["recognized"]["category"], punctuated["recognized"]["amount"], punctuated["recognized"]["item"]),
+                ("meal", 300, "一碗拉面"), text,
+            )
 
         # 只去掉实际被当作裸金额的末尾数字，保留消费内容中的数量。
         skewers = app.parse_text("吃了2串烤肉 30")
@@ -136,12 +198,16 @@ class ParserTests(unittest.TestCase):
         self.assertEqual((priced["recognized"]["amount"], priced["recognized"]["item"]), (30, "一碗面"))
 
         # 已有明确金额时，末尾数字不是金额来源，可能是型号或尺码，必须保留。
-        model = app.parse_text("花了200元，买了衣服 型号 30")
-        self.assertEqual((model["recognized"]["amount"], model["recognized"]["item"]),
-                         (200, "衣服 型号 30"))
-        size = app.parse_text("付款200元，买鞋子 尺码 42")
-        self.assertEqual((size["recognized"]["amount"], size["recognized"]["item"]),
-                         (200, "鞋子 尺码 42"))
+        for text, expected_amount, expected_item in (
+            ("花了200元，买了衣服 型号 30", 200, "衣服 型号 30"),
+            ("买衣服 型号 30 .", None, "衣服 型号 30"),
+            ("付款200元，买鞋子 尺码 42", 200, "鞋子 尺码 42"),
+            ("买鞋子 尺码 42。", None, "鞋子 尺码 42"),
+        ):
+            parsed = app.parse_text(text)
+            self.assertEqual(parsed["recognized"]["amount"], expected_amount, text)
+            self.assertEqual(parsed["recognized"]["item"], expected_item, text)
+            self.assertEqual(parsed["can_save"], expected_amount is not None, text)
 
         toll = app.parse_text("ETC 126")
         self.assertEqual((toll["recognized"]["category"], toll["recognized"]["amount"]), ("toll", 126))
@@ -166,6 +232,19 @@ class ParserTests(unittest.TestCase):
 
         # 数字必须和消费内容分隔，避免把商品规格或编号当成金额。
         self.assertIsNone(app.parse_text("吃了一碗面30")["recognized"]["amount"])
+
+    def test_multi_record_ai_status_only_uses_called_record_reason(self):
+        previous_key, previous_open = app.DEEPSEEK_API_KEY, app.urlopen
+        try:
+            app.DEEPSEEK_API_KEY = "test-key-not-a-real-secret"
+            app.urlopen = lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError("network"))
+            parsed = app.parse_text("在兰州午餐吃面30元；住宿200元", ai_enhance=True)
+        finally:
+            app.DEEPSEEK_API_KEY, app.urlopen = previous_key, previous_open
+
+        self.assertTrue(parsed["ai_status"]["called"])
+        self.assertFalse(parsed["ai_status"]["used"])
+        self.assertEqual(parsed["ai_status"]["reason"], "request_failed")
 
     def test_fuel_defaults_to_95_and_lists_metric_gaps(self):
         result = app.parse_text("在广元加了500元汽油")
@@ -1706,7 +1785,7 @@ class ParserTests(unittest.TestCase):
         self.assertNotIn("2026-09-21", by_date)
         self.assertEqual((by_date["2026-09-22"]["day_number"], by_date["2026-09-22"]["spend"]), (3, 260))
         report = app.dashboard(trip["id"])
-        self.assertEqual(report["app_version"], "3.2.3")
+        self.assertEqual(report["app_version"], "3.2.4")
         self.assertEqual(sum(day["spend"] for day in report["days"]), report["total_spend"])
 
     def test_v21_day_route_requires_active_trip_and_excel_has_daily_sheet(self):

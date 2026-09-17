@@ -1155,13 +1155,34 @@ function renderActiveReview(){
   ["category","amount","location","item","fuel_grade","fuel_liters","fuel_unit_price","odometer","full_tank"].forEach(k=>assign(k,fields[k]));
   assign("occurred_at",fields.occurred_at || localDateTimeValue());
   text($("#gps-status"),"");
-  const recognitionNote=$("#recognition-note");
-  if(recognitionNote){ text(recognitionNote,parsed.recognition_notice || ""); recognitionNote.classList.toggle("hidden",!parsed.recognition_notice); }
+  const recognitionNote=$("#recognition-note"), recognitionMessage=recognitionTransparency(parsed);
+  if(recognitionNote){ text(recognitionNote,recognitionMessage); recognitionNote.classList.toggle("hidden",!recognitionMessage); }
   renderReidentifyActions(parsed);
   updateCategoryFields(fields.category);
   renderFieldMeta(parsed.field_meta || state.reviewSource?.field_meta || {});
   updateReviewState();
   $("#review-card").scrollIntoView({behavior:"smooth",block:"start"});
+}
+function aiFieldLabel(field){
+  const labels={category:"分类",location:"地点",item:"消费内容",full_tank:"是否加满"};
+  return labels[field] || null;
+}
+function recognitionTransparency(parsed={}){
+  // 后端未提供 AI 状态时也明确说明本次是本地规则，避免让联网语义增强变成黑盒。
+  // 兼容未来 ai_usage / ai_status 的不同字段结构；不展示原句、模型响应或密钥。
+  const usage=parsed?.ai_usage;
+  const usageObject=usage && typeof usage==="object" ? usage : {};
+  const aiStatus=parsed?.ai_status && typeof parsed.ai_status==="object" ? parsed.ai_status : {};
+  const status=String(aiStatus.reason || aiStatus.status || usageObject.reason || usageObject.status || (typeof parsed?.ai_status==="string" ? parsed.ai_status : "") || (typeof usage==="string" ? usage : "")).toLowerCase();
+  const enhanced=Array.isArray(parsed?.ai_enhanced_fields) ? parsed.ai_enhanced_fields : (Array.isArray(aiStatus.enhanced_fields) ? aiStatus.enhanced_fields : (Array.isArray(usageObject.enhanced_fields) ? usageObject.enhanced_fields : []));
+  const names=enhanced.map(aiFieldLabel).filter(Boolean);
+  const called=Boolean(aiStatus.called || usage===true || usageObject.called===true || ["called","enhanced","success","completed","no_new_fields","no_usable_fields"].includes(status));
+  const used=Boolean(parsed?.recognition_notice || enhanced.length || aiStatus.used || usageObject.used);
+  if(used) return `本次已调用 DeepSeek${names.length ? `，补全：${names.join("、")}` : " 进行语义补全"}；请核对后入账。`;
+  if(usageObject.fallback || usageObject.available===false || ["fallback","unavailable","failed","error","timeout","request_failed","invalid_response"].includes(status)) return "DeepSeek 本次不可用，已回退为本地规则识别。";
+  if(called) return "本次已调用 DeepSeek，但未补充新的字段；已保留本地规则结果。";
+  if(status==="not_configured") return "本次由本地规则完成，DeepSeek 尚未配置。";
+  return "本次由本地规则完成，未调用 DeepSeek。";
 }
 function renderReidentifyActions(parsed=state.parsed){
   // 只刷新两个入口，不触碰当前表单或 GPS，供增强请求 finally 安全恢复。
@@ -1434,9 +1455,44 @@ function localCsvRows(){
 }
 function exportLocalBomCsv(){
   const csv="\uFEFF"+localCsvRows().map(row=>row.map(csvCell).join(",")).join("\r\n");
-  const blob=new Blob([csv],{type:"text/csv;charset=utf-8"}), url=URL.createObjectURL(blob), anchor=document.createElement("a"); anchor.href=url; anchor.download=`自驾账本-手机待处理-${localDateKey()}.csv`; anchor.click(); setTimeout(()=>URL.revokeObjectURL(url),0); toast("已导出手机待处理记录");
+  const blob=new Blob([csv],{type:"text/csv;charset=utf-8"}), url=URL.createObjectURL(blob), anchor=document.createElement("a"); anchor.href=url; anchor.download=`自驾账本-手机待处理-${localDateKey()}.csv`; anchor.click(); setTimeout(()=>URL.revokeObjectURL(url),0); toast("待处理 CSV 已下载；请在浏览器下载内容或文件管理 · 下载中查看");
 }
 $("#export-local").addEventListener("click",exportLocalBomCsv);
+function offerExcelFallback(){
+  const help=$("#export-help");
+  if(!help || help.dataset.fallbackShown) return;
+  help.dataset.fallbackShown="true";
+  const link=document.createElement("a");
+  link.href="/api/export.xlsx"; link.textContent="没有开始下载？点这里重新下载"; link.className="export-fallback";
+  help.append(document.createTextNode(" "),link);
+}
+async function exportExcel(){
+  const button=$("#export-excel");
+  if(!button || button.disabled) return;
+  button.disabled=true; text(button,"正在准备…");
+  toast("正在生成 Excel，请稍候…");
+  const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),12000);
+  try{
+    // 保持既有导出接口与工作簿内容不变，只把浏览器下载过程做成可见的状态和错误反馈。
+    const response=await fetch("/api/export.xlsx",{headers:{Accept:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},signal:controller.signal});
+    if(!response.ok) throw new Error("Excel 暂时无法生成，请稍后重试");
+    if(typeof response.blob!=="function") throw new Error("当前浏览器不支持下载 Excel，请使用系统浏览器重试");
+    const blob=await response.blob(), url=URL.createObjectURL(blob), anchor=document.createElement("a");
+    anchor.href=url; anchor.download=`自驾账本-${localDateKey()}.xlsx`; anchor.style.display="none"; document.body.appendChild(anchor); anchor.click(); anchor.remove();
+    // 部分 Android 浏览器在点击后的短时间内才读取 Blob，不能立刻释放。
+    const cleanupTimer=setTimeout(()=>URL.revokeObjectURL(url),60000);
+    // Node 回归环境不应为仅用于回收 Blob 的定时器滞留；浏览器中返回的是数字。
+    cleanupTimer?.unref?.();
+    offerExcelFallback();
+    toast("已发起 Excel 下载；请在浏览器下载内容或文件管理 · 下载中查看");
+  }catch(error){
+    toast(error?.name==="AbortError" ? "Excel 下载超时，请稍后重试" : (error?.message || "Excel 下载失败，请检查网络后重试"));
+  }finally{
+    clearTimeout(timer);
+    button.disabled=false; text(button,"下载 Excel");
+  }
+}
+$("#export-excel").addEventListener("click",exportExcel);
 
 $("#trip-form").addEventListener("submit",async event=>{
   event.preventDefault(); const form=event.currentTarget, f=new FormData(form);

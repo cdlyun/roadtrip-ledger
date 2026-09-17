@@ -23,8 +23,11 @@ assert.match(styles,/@container \(min-width:720px\)\{[^]*?\[data-screen="bills"\
 assert.match(html,/id="entry-mode-natural"[^>]*>一句话记账/);
 assert.match(html,/id="entry-mode-manual"[^>]*>手动填写/);
 assert.match(html,/id="recognition-note"[^>]*role="status"/);
+assert.match(html,/id="export-excel"[^>]*>下载 Excel/);
+assert.match(html,/id="export-help"[^>]*>Excel 包含本次已入账的行程数据/);
 assert.match(html,/id="enhance-entry"[^>]*>使用 DeepSeek 增强识别/);
 assert.match(styles,/\.recognition-note\{[^}]*background:var\(--teal-soft\)/);
+assert.match(styles,/\.export-help\{[^}]*background:#f3f8f6/);
 assert.match(html,/这一路，越山向海/);
 assert.doesNotMatch(html,/这段路，花得明明白白/);
 assert.match(source,/error\.uncertain\s*=\s*true/);
@@ -32,7 +35,7 @@ assert.match(source,/error\.uncertain \? "请求超时，结果待核对"/);
 assert.match(source,/function scheduleNaturalParse\(\)/);
 assert.match(source,/api\("\/api\/parse"/);
 assert.match(source,/window\.addEventListener\?\.\("offline",\(\)=>setOnline\(false\)\)/);
-source=source.replace(/fillSelect\(\); bootstrap\(\);[\s\S]*$/,"globalThis.__test={state,offlineQueue,localState,readV26,ensureLocalStateLocked,mutateLocalState,syncOfflineQueue,writeStored,renderReview,persistDraft,currentDraft,draftFromForm,scheduleDraftSave,resumeDraft,resetReview,advanceReviewRecord,removePending,loadTrash,renderTrash,removeOdometer,restoreTrash,permanentlyDeleteTrash,openTripEdit,editPending,editEntry,editOdometer,saveOdometer,verifyEntryResponse,verifySyncResponse,markFieldConfirmed,renderDashboard,localCsvRows,exportLocalBomCsv,parseNaturalEntry,scheduleNaturalParse,setEntryMode,closeSheets,openOdometerSheet,openPendingList,updateFinishControl,finishRequirements,setSheetOpen,sheetFocusable,trapSheetFocus,renderFieldMeta,editSourceText,enhanceCurrentEntry,returnToReview,canReidentifySource,syncVisualViewport};");
+source=source.replace(/fillSelect\(\); bootstrap\(\);[\s\S]*$/,"globalThis.__test={state,offlineQueue,localState,readV26,ensureLocalStateLocked,mutateLocalState,syncOfflineQueue,writeStored,renderReview,persistDraft,currentDraft,draftFromForm,scheduleDraftSave,resumeDraft,resetReview,advanceReviewRecord,removePending,loadTrash,renderTrash,removeOdometer,restoreTrash,permanentlyDeleteTrash,openTripEdit,editPending,editEntry,editOdometer,saveOdometer,verifyEntryResponse,verifySyncResponse,markFieldConfirmed,renderDashboard,localCsvRows,exportLocalBomCsv,exportExcel,recognitionTransparency,parseNaturalEntry,scheduleNaturalParse,setEntryMode,closeSheets,openOdometerSheet,openPendingList,updateFinishControl,finishRequirements,setSheetOpen,sheetFocusable,trapSheetFocus,renderFieldMeta,editSourceText,enhanceCurrentEntry,returnToReview,canReidentifySource,syncVisualViewport};");
 
 class Node {
   constructor(selector=""){ this.selector=selector; this.name=(selector.match(/\[name=([^\]]+)\]/)||[])[1] || ""; this.style={}; this.className=""; const classes=new Set(); this.classList={add:(...names)=>names.forEach(name=>classes.add(name)),remove:(...names)=>names.forEach(name=>classes.delete(name)),toggle:(name,force)=>{ const next=force===undefined ? !classes.has(name) : Boolean(force); next?classes.add(name):classes.delete(name); return next; },contains:name=>classes.has(name)}; this.children=[]; this.listeners={}; this.value=""; this.textContent=""; this.disabled=false; this.dataset={}; this.files=[]; this._formData={}; this.checked=false; }
@@ -55,13 +58,13 @@ class Node {
 }
 
 const values=new Map(), nodes=new Map();
-const needed=["#connection","#toast","#metrics","#history","#category-summary","#pending-history","#sync-note","#sync-progress","#sync-progress-label","#sync-progress-bar","#entry-form","#entry-text","#review-card","#review-title","#save-state","#save-entry","#cancel-edit","#missing-list","#field-meta","#recognition-note","#enhance-entry","#record-list","#record-progress","#gps-location","#gps-status","#fuel-unit-price","#fuel-fields","#item-field","#trip-edit","#trip-edit-form","#trip-form","#trip-empty","#trip-active","#entry-card","#finish-card","#finish-form","#history-card","#odometer-card","#odometer-form","#odometer-history","#trash-card","#trash-list","#draft-notice","#export-local","#record-sheet","#odometer-sheet","#sheet-backdrop"];
+const needed=["#connection","#toast","#metrics","#history","#category-summary","#pending-history","#sync-note","#sync-progress","#sync-progress-label","#sync-progress-bar","#entry-form","#entry-text","#review-card","#review-title","#save-state","#save-entry","#cancel-edit","#missing-list","#field-meta","#recognition-note","#enhance-entry","#record-list","#record-progress","#gps-location","#gps-status","#fuel-unit-price","#fuel-fields","#item-field","#trip-edit","#trip-edit-form","#trip-form","#trip-empty","#trip-active","#entry-card","#finish-card","#finish-form","#history-card","#odometer-card","#odometer-form","#odometer-history","#trash-card","#trash-list","#draft-notice","#export-help","#export-excel","#export-local","#record-sheet","#odometer-sheet","#sheet-backdrop"];
 for(const key of needed) nodes.set(key,new Node(key));
 for(const field of ["category","amount","location","item","occurred_at","fuel_grade","fuel_liters","fuel_unit_price","odometer"]) nodes.set(`#entry-form [name=${field}]`,new Node(`#entry-form [name=${field}]`));
 for(const field of ["odometer","occurred_at","location","note"]) nodes.set(`#odometer-form [name=${field}]`,new Node(`#odometer-form [name=${field}]`));
 for(const field of ["end_odometer","confirm_finish"]) nodes.set(`#finish-form [name=${field}]`,new Node(`#finish-form [name=${field}]`));
 const body=new Node("body"), rootStyle={setProperty:(key,value)=>{rootStyle[key]=value;}};
-function documentStub(){ return {body,documentElement:{style:rootStyle},activeElement:null,querySelector(key){ if(!nodes.has(key)) nodes.set(key,new Node(key)); return nodes.get(key); },querySelectorAll(){ return []; },createElement(tag){ return new Node(tag); },addEventListener(){}}; }
+function documentStub(){ return {body,documentElement:{style:rootStyle},activeElement:null,querySelector(key){ if(!nodes.has(key)) nodes.set(key,new Node(key)); return nodes.get(key); },querySelectorAll(){ return []; },createElement(tag){ return new Node(tag); },createTextNode(value){ const node=new Node("#text"); node.textContent=String(value); return node; },addEventListener(){}}; }
 global.document=documentStub();
 class FakeFormData { constructor(form){ this.form=form; } get(key){ return this.form?this.form._formData[key] ?? document.querySelector(`${this.form.selector} [name=${key}]`)?.value ?? "": ""; } }
 const lockState={tail:Promise.resolve()};
@@ -152,6 +155,24 @@ function syncResult(options){
   // 本地BOM CSV首列和离线字段保持冻结口径。
   resetStorage(); putState({schema:26,revision:0,queue:[entry("E")],trash:[],draft:null}); const rows=t.localCsvRows(); assert.strictEqual(rows[0][0],"状态"); assert.strictEqual(rows[0].length,16); assert.strictEqual(rows[1][1],"E");
 
+  // Excel 保持既有接口和内容，但下载过程必须有可见的进行中/成功/失败反馈；
+  // 浏览器会决定具体下载目录，文案不能承诺一个应用无法控制的位置。
+  resetStorage();
+  fetchImpl=async(path,options)=>{ fetchCalls.push({path,options}); return {ok:true,status:200,blob:async()=>new context.Blob(["xlsx"])}; };
+  await t.exportExcel(); assert.strictEqual(fetchCalls[0].path,"/api/export.xlsx"); assert.ok(fetchCalls[0].options.signal); assert.match(nodes.get("#toast").textContent,/已发起 Excel 下载/); assert.strictEqual(nodes.get("#export-excel").textContent,"下载 Excel"); assert.strictEqual(nodes.get("#export-excel").disabled,false); assert.match(nodes.get("#export-help").children.at(-1).textContent,/没有开始下载/);
+  fetchImpl=async()=>({ok:false,status:500,blob:async()=>new context.Blob([])});
+  await t.exportExcel(); assert.match(nodes.get("#toast").textContent,/Excel 暂时无法生成/);
+  fetchImpl=async()=>{ const error=new Error("abort"); error.name="AbortError"; throw error; };
+  await t.exportExcel(); assert.match(nodes.get("#toast").textContent,/Excel 下载超时/); assert.strictEqual(nodes.get("#export-excel").disabled,false);
+
+  // AI 识别是否发生必须是可解释的：成功列出补全字段，异常说明回退；
+  // 未返回状态字段时按既有本地规则口径处理，绝不把 DeepSeek 说成后台默认调用。
+  assert.strictEqual(t.recognitionTransparency({}),"本次由本地规则完成，未调用 DeepSeek。");
+  assert.strictEqual(t.recognitionTransparency({ai_usage:{status:"enhanced",enhanced_fields:["category","item"]}}),"本次已调用 DeepSeek，补全：分类、消费内容；请核对后入账。");
+  assert.strictEqual(t.recognitionTransparency({ai_status:"timeout"}),"DeepSeek 本次不可用，已回退为本地规则识别。");
+  assert.strictEqual(t.recognitionTransparency({ai_status:{requested:true,called:true,used:false,reason:"request_failed",enhanced_fields:[]}}),"DeepSeek 本次不可用，已回退为本地规则识别。");
+  assert.strictEqual(t.recognitionTransparency({ai_status:{requested:true,called:true,used:true,reason:"completed",enhanced_fields:["location"]}}),"本次已调用 DeepSeek，补全：地点；请核对后入账。");
+
   // 原始文字一输入就保存草稿，尚未解析也能在同一行程恢复。
   resetStorage(); t.state.trip={id:7}; nodes.get("#entry-text").value="在大柴旦买水 8 元"; await nodes.get("#entry-text").dispatch("input"); await new Promise(resolve=>setTimeout(resolve,360));
   let draftDoc=JSON.parse(values.get("roadtrip.localState.v26")); assert.strictEqual(draftDoc.draft.raw_text,"在大柴旦买水 8 元"); assert.strictEqual(draftDoc.draft.trip_id,7); assert.strictEqual(t.currentDraft().raw_text,"在大柴旦买水 8 元");
@@ -159,7 +180,7 @@ function syncResult(options){
   // 一句话入口必须调用既有解析接口，并将分类、金额、地点和内容带入确认页。
   resetStorage(); t.state.trip={id:7}; nodes.get("#entry-text").value="在广元午餐吃米粉 30 元";
   fetchImpl=async(path,options)=>{ fetchCalls.push({path,options}); return {ok:true,status:200,json:async()=>({raw_text:"在广元午餐吃米粉 30 元",recognized:{category:"meal",amount:30,location:"广元",item:"米粉",occurred_at:"2026-09-15T12:00"},recognition_notice:"已用 DeepSeek 补全口语字段，请核对标注内容",missing:[],field_meta:{category:{state:"recognized"},amount:{state:"recognized"},location:{state:"recognized"},item:{state:"review"}}})}; };
-  await t.parseNaturalEntry(); assert.strictEqual(fetchCalls[0].path,"/api/parse"); assert.strictEqual(JSON.parse(fetchCalls[0].options.body).ai_enhance,true); assert.strictEqual(t.state.parsed.recognized.category,"meal"); assert.strictEqual(nodes.get("#entry-form [name=amount]").value,30); assert.strictEqual(nodes.get("#entry-form [name=location]").value,"广元"); assert.strictEqual(nodes.get("#entry-form [name=item]").value,"米粉"); assert.strictEqual(nodes.get("#recognition-note").textContent,"已用 DeepSeek 补全口语字段，请核对标注内容"); assert.strictEqual(nodes.get("#recognition-note").classList.contains("hidden"),false);
+  await t.parseNaturalEntry(); assert.strictEqual(fetchCalls[0].path,"/api/parse"); assert.strictEqual(JSON.parse(fetchCalls[0].options.body).ai_enhance,true); assert.strictEqual(t.state.parsed.recognized.category,"meal"); assert.strictEqual(nodes.get("#entry-form [name=amount]").value,30); assert.strictEqual(nodes.get("#entry-form [name=location]").value,"广元"); assert.strictEqual(nodes.get("#entry-form [name=item]").value,"米粉"); assert.strictEqual(nodes.get("#recognition-note").textContent,"本次已调用 DeepSeek 进行语义补全；请核对后入账。"); assert.strictEqual(nodes.get("#recognition-note").classList.contains("hidden"),false);
 
   // 点击“增强识别”必须走受保护的原句重识别：保留 client_id，手动字段/GPS
   // 先二次确认；重复点击和取消后的晚到响应不能覆盖人工确认。

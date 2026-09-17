@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-Current application version: v3.2.3. Frontend asset revision: v3.2.3.
+Current application version: v3.2.4. Frontend asset revision: v3.2.4.
 
 ## Versioning
 
@@ -10,7 +10,8 @@ The application and frontend asset revision use semantic versions (`vmajor.minor
 
 ## Release history
 
-- **v3.2.3 (current):** speech-to-text input saves a draft only; it no longer parses or switches screens after a pause. Parsing begins only after you tap “识别并确认”.
+- **v3.2.4 (current):** supports conversational bare amounts ending in Chinese punctuation or a standalone period, such as “兰州吃一碗拉面 300 .”; the review screen now explains whether DeepSeek was called, enhanced fields, or fell back to local rules; Excel download feedback now explains where to find the file on a phone.
+- **v3.2.3:** speech-to-text input saves a draft only; it no longer parses or switches screens after a pause. Parsing begins only after you tap “识别并确认”.
 - **v3.2.2:** cleans an item after a bare amount is recognized: “吃了一碗面 30” becomes amount 30 with item “一碗面”, while model and size numbers remain intact.
 - **v3.2.1:** fixes terminal bare amounts when speech-to-text omits a currency unit, such as “吃了一碗面 30”, while conservatively excluding mileage, quantities, and identifiers.
 - **v3.2.0:** adds optional DeepSeek Flash semantic completion for transcribed text. Local rules, offline entry, and final save-time validation remain the baseline safeguards.

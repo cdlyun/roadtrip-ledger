@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
 DB_PATH = Path(os.environ.get("ROADTRIP_DB", ROOT / "data" / "roadtrip.db"))
 PORT = int(os.environ.get("PORT", "8080"))
-APP_VERSION = "3.2.3"
+APP_VERSION = "3.2.4"
 SCHEMA_VERSION = 31
 # 可选的语义增强：密钥只从运行环境读取，绝不进入数据库、导出文件或日志。
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()
@@ -276,7 +276,10 @@ def terminal_bare_expense_token(text: str, category: str | None) -> str | None:
     if not category or category == "fuel":
         return None
     bare = re.search(
-        r"(?:^|[\s，,。；;])((?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?))\s*$",
+        # 转写的句末可能带中文句号，也可能是独立的英文句点（“300 .”）。
+        # 不接受紧贴数字的小数点，避免把 18.5 截成 18。
+        r"(?:^|[\s，,。；;])((?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?))"
+        r"(?=\s*(?:[。；;！？!?]|\.(?!\d))?\s*$)",
         text,
     )
     if not bare:
@@ -284,7 +287,8 @@ def terminal_bare_expense_token(text: str, category: str | None) -> str | None:
     before = text[:bare.start(1)]
     protected_context = (
         r"(?:油号|汽油|加油|升数|加油量|当前里程|里程表|表显|里程|"
-        r"人数|人|晚数|晚|时间|日期|商品编号|房间号|编号|货号)"
+        r"人数|人|晚数|晚|时间|日期|商品编号|房间号|编号|货号|"
+        r"型号|尺码|规格|尺寸|容量|版本)"
         r"\s*(?:(?:是|为)\s*)?(?:[:：]\s*)?$"
         r"|\d{1,2}:\s*$"
     )
@@ -473,7 +477,7 @@ def clean_item_text(value: str | None):
     """去掉消费内容尾部的金额和后续字段，保留“一瓶啤酒”等数量描述。"""
     if not value:
         return None
-    result = str(value).strip(" ，,。；;：:")
+    result = str(value).strip(" ，,。；;：:！？!.")
     result = re.sub(r"\s*(?:在|于)\s*[^，,。；;\d]{1,24}\s*$", "", result)
     result = re.split(
         r"\s*(?:，|,|。|；|;)?\s*(?:地点|位置|当前里程|里程表|表显|升数|加油量|记录时间)\s*[:：]?",
@@ -483,7 +487,7 @@ def clean_item_text(value: str | None):
     labeled = rf"(?:支付金额|消费金额|支付|实付|付款|付了|付|金额|花费|花了|一共|总共|合计)\s*(?:了|为|是)?\s*[:：]?\s*{NUMBER_TOKEN}\s*(?:元|块钱?|块)?"
     colloquial = rf"{NUMBER_TOKEN}\s*(?:元|块)\s*[0-9零〇一二两三四五六七八九]\s*(?:角|毛)?"
     priced = rf"(?:共|总共|一共)?\s*(?:{colloquial}|{NUMBER_TOKEN}\s*(?:元|块钱?|块))"
-    result = re.sub(rf"\s*(?:{labeled}|{priced})\s*$", "", result).strip(" ，,。；;")
+    result = re.sub(rf"\s*(?:{labeled}|{priced})\s*$", "", result).strip(" ，,。；;！？!.")
     return result or None
 
 
@@ -573,14 +577,16 @@ def field_meta(fields: dict, gaps: list[dict], derived: list[str], raw_text: str
     return result
 
 
-def deepseek_semantic_fields(text: str) -> dict | None:
+def deepseek_semantic_attempt(text: str) -> tuple[dict | None, str]:
     """可选地补全口语中的语义字段；任何网络或格式问题都静默交回本地规则。
 
     只发送用户已在输入框确认的转写文字。请求和响应均不会写入日志，模型也不
     接触账本、GPS、行程或任何密钥以外的数据。
     """
-    if not DEEPSEEK_API_KEY or not text or len(text) > 2000:
-        return None
+    if not DEEPSEEK_API_KEY:
+        return None, "not_configured"
+    if not text or len(text) > 2000:
+        return None, "invalid_input"
     schema = {
         "category": "fuel|toll|parking|lodging|meal|ticket|daily|transport|service|clothing|shopping|vehicle|other|null",
         "location": "string|null",
@@ -615,19 +621,19 @@ def deepseek_semantic_fields(text: str) -> dict | None:
             body = response.read(16 * 1024).decode("utf-8")
         outer = json.loads(body)
         if not isinstance(outer, dict):
-            return None
+            return None, "invalid_response"
         choices = outer.get("choices")
         if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
-            return None
+            return None, "invalid_response"
         message = choices[0].get("message")
         if not isinstance(message, dict) or not isinstance(message.get("content"), str):
-            return None
+            return None, "invalid_response"
         content = message["content"]
         candidate = json.loads(content)
     except (HTTPError, URLError, TimeoutError, OSError, ValueError, KeyError, IndexError, TypeError, json.JSONDecodeError):
-        return None
+        return None, "request_failed"
     if not isinstance(candidate, dict):
-        return None
+        return None, "invalid_response"
     result = {}
     category = candidate.get("category")
     if isinstance(category, str) and category in CATEGORIES:
@@ -641,7 +647,13 @@ def deepseek_semantic_fields(text: str) -> dict | None:
                 result[name] = value
     if isinstance(candidate.get("full_tank"), bool):
         result["full_tank"] = candidate["full_tank"]
-    return result or None
+    return (result or None), ("completed" if result else "no_usable_fields")
+
+
+def deepseek_semantic_fields(text: str) -> dict | None:
+    """兼容旧调用方的语义字段接口；状态由 deepseek_semantic_attempt 提供。"""
+    fields, _ = deepseek_semantic_attempt(text)
+    return fields
 
 
 def semantic_help_needed(fields: dict) -> bool:
@@ -652,6 +664,31 @@ def semantic_help_needed(fields: dict) -> bool:
         or not fields.get("location")
         or (category != "fuel" and not fields.get("item"))
     )
+
+
+def aggregate_ai_status(records: list[dict], requested: bool) -> dict:
+    """多笔解析也返回同一份无敏感信息的 AI 处理摘要。"""
+    statuses = [record.get("ai_status", {}) for record in records]
+    called = any(status.get("called") for status in statuses)
+    used = any(status.get("used") for status in statuses)
+    enhanced_fields = list(dict.fromkeys(
+        field for status in statuses for field in status.get("enhanced_fields", [])
+    ))
+    if used:
+        reason = "completed"
+    elif called:
+        # 多笔中只有实际联网尝试过的记录，才能解释顶层“已调用但未补全”的原因。
+        # 否则前一笔本地字段完整会掩盖后一笔真实的请求失败。
+        reason = next((status.get("reason") for status in statuses
+                       if status.get("called") and status.get("reason") not in {"completed", None}),
+                      "no_usable_fields")
+    else:
+        reason = next((status.get("reason") for status in statuses if status.get("reason") == "available_on_request"), None)
+        if reason is None:
+            reason = next((status.get("reason") for status in statuses if status.get("reason") == "not_configured"),
+                          "local_fields_complete")
+    return {"requested": requested, "called": called, "used": used,
+            "reason": reason, "enhanced_fields": enhanced_fields}
 
 
 def fuel_details(text: str) -> dict:
@@ -699,9 +736,13 @@ def enrich_parsed_text(result: dict, text: str) -> dict:
     # 最小化外发：规则已经完整识别的句子不需要再调用模型。
     fields = result["recognized"]
     if not semantic_help_needed(fields):
+        result["ai_status"] = {"requested": True, "called": False, "used": False,
+                               "reason": "local_fields_complete", "enhanced_fields": []}
         return result
-    suggested = deepseek_semantic_fields(text)
+    suggested, attempt_reason = deepseek_semantic_attempt(text)
     if not suggested:
+        result["ai_status"] = {"requested": True, "called": attempt_reason not in {"not_configured", "invalid_input"},
+                               "used": False, "reason": attempt_reason, "enhanced_fields": []}
         return result
     accepted = []
     # 已由确定性规则识别出的分类不被网络模型推翻；AI 只补全规则无法判断的语义。
@@ -728,6 +769,8 @@ def enrich_parsed_text(result: dict, text: str) -> dict:
         fields["full_tank"] = suggested["full_tank"]
         accepted.append("full_tank")
     if not accepted:
+        result["ai_status"] = {"requested": True, "called": True, "used": False,
+                               "reason": "no_new_fields", "enhanced_fields": []}
         return result
 
     # 补全类别后，要把原来“无法识别类别”时未生成的建议项补回来。
@@ -756,6 +799,8 @@ def enrich_parsed_text(result: dict, text: str) -> dict:
         }
     result["can_save"] = not any(gap["level"] == "required" for gap in gaps)
     result["ai_enhanced_fields"] = accepted
+    result["ai_status"] = {"requested": True, "called": True, "used": True,
+                           "reason": "completed", "enhanced_fields": accepted}
     result["recognition_notice"] = "已用 DeepSeek 补全口语字段，请核对标注内容"
     return result
 
@@ -782,7 +827,8 @@ def parse_text(text: str, _single: bool = False, ai_enhance: bool = False) -> di
             return {"raw_text": text, "recognized": records[0]["recognized"],
                     "missing": [missing("multiple_entries", "已拆分多笔消费", "info", "已识别为多笔，请逐笔确认后保存")],
                     "derived_fields": [], "field_meta": records[0]["field_meta"], "records": records,
-                    "can_save": all(record["can_save"] for record in records)}
+                    "can_save": all(record["can_save"] for record in records),
+                    "ai_status": aggregate_ai_status(records, ai_enhance)}
     category, label = detect_category(text)
     # 无分类调用只会匹配带金额标签/货币单位的既有规则，可作为来源标记。
     # 只有它未命中且分类版命中末尾裸数字，才允许从消费内容移除该数字。
@@ -860,10 +906,11 @@ def parse_text(text: str, _single: bool = False, ai_enhance: bool = False) -> di
         # 带货币单位的金额以及所有字段编号不会命中 bare_amount_token。
         if item and bare_amount_used:
             item = re.sub(
-                rf"(?:[\s，,。；;])+{re.escape(bare_amount_token)}\s*$",
+                rf"(?:[\s，,。；;])+{re.escape(bare_amount_token)}"
+                rf"\s*(?:[。；;！？!?]|\.(?!\d))?\s*$",
                 "",
                 item,
-            ).strip(" ，,。；;") or None
+            ).strip(" ，,。；;！？!.") or None
     if not item and category:
         defaults = {
             "toll": r"(?:ETC|过路费|高速费|通行费|路桥费)",
@@ -928,9 +975,19 @@ def parse_text(text: str, _single: bool = False, ai_enhance: bool = False) -> di
     # DeepSeek 只做联网时的可选语义补全；无密钥、断网、超时或返回异常时，
     # 返回值与原先纯本地规则完全一致。
     enriched = enrich_parsed_text(result, text) if ai_enhance else result
-    if not ai_enhance and DEEPSEEK_API_KEY and semantic_help_needed(enriched["recognized"]):
-        # 只告知前端“可主动增强”；自动输入防抖不触发外部请求。
-        enriched["ai_enhancement_available"] = True
+    if not ai_enhance:
+        needs_ai = semantic_help_needed(enriched["recognized"])
+        if DEEPSEEK_API_KEY and needs_ai:
+            # 只告知前端“可主动增强”；自动输入防抖不触发外部请求。
+            enriched["ai_enhancement_available"] = True
+            enriched["ai_status"] = {"requested": False, "called": False, "used": False,
+                                      "reason": "available_on_request", "enhanced_fields": []}
+        elif needs_ai:
+            enriched["ai_status"] = {"requested": False, "called": False, "used": False,
+                                      "reason": "not_configured", "enhanced_fields": []}
+        else:
+            enriched["ai_status"] = {"requested": False, "called": False, "used": False,
+                                      "reason": "local_fields_complete", "enhanced_fields": []}
     # records 与顶层都要看到同一份补全后的字段和待核对元数据。
     enriched["records"] = [{key: value for key, value in enriched.items() if key != "records"}]
     return enriched

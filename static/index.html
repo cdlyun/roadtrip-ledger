@@ -6,12 +6,12 @@
   <meta name="theme-color" content="#0f5c56">
   <title>自驾账本</title>
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="stylesheet" href="/styles.css?v=3.2.3">
+  <link rel="stylesheet" href="/styles.css?v=3.2.4">
 </head>
 <body>
   <div class="app-shell" data-ui-version="3.1">
     <header class="topbar">
-      <div><span class="topbar-kicker">ROADTRIP LEDGER · v3.2.3</span><h1>自驾账本</h1></div>
+      <div><span class="topbar-kicker">ROADTRIP LEDGER · v3.2.4</span><h1>自驾账本</h1></div>
       <span id="connection" class="status">连接中</span>
     </header>
 
@@ -69,7 +69,7 @@
       </section>
 
       <section class="app-screen" data-screen="bills" aria-label="账单">
-        <section id="history-card" class="card hidden"><div class="section-heading"><div><span class="screen-kicker">我的账单</span><h2>全部消费</h2></div><div class="export-actions"><button id="open-pending" class="export-link" type="button">待处理记录</button><a class="export-link" href="/api/export.xlsx">导出 Excel</a><button id="export-local" class="export-link" type="button">导出待处理</button></div></div><div id="sync-progress" class="sync-progress hidden"><span id="sync-progress-label"></span><progress id="sync-progress-bar" max="1" value="0"></progress></div><div id="sync-note" class="sync-note hidden"></div><div id="pending-history" class="history"></div><div id="category-summary" class="category-summary"></div><div id="history" class="history"></div></section>
+        <section id="history-card" class="card hidden"><div class="section-heading"><div><span class="screen-kicker">我的账单</span><h2>全部消费</h2></div><div class="export-actions"><button id="open-pending" class="export-link" type="button">待处理记录</button><button id="export-excel" class="export-link" type="button">下载 Excel</button><button id="export-local" class="export-link" type="button">待处理 CSV</button></div></div><p id="export-help" class="export-help">Excel 包含本次已入账的行程数据，适合留存和后续分析；下载后可在浏览器“下载内容”或手机“文件管理 · 下载”中找到。</p><div id="sync-progress" class="sync-progress hidden"><span id="sync-progress-label"></span><progress id="sync-progress-bar" max="1" value="0"></progress></div><div id="sync-note" class="sync-note hidden"></div><div id="pending-history" class="history"></div><div id="category-summary" class="category-summary"></div><div id="history" class="history"></div></section>
         <details id="trash-card" class="card hidden"><summary class="section-summary"><span>回收站</span><small>删除的记录保留 30 天</small></summary><div id="trash-list" class="history"></div></details>
       </section>
 
@@ -90,6 +90,6 @@
   </section>
   <section id="odometer-sheet" class="bottom-sheet bottom-sheet--small" aria-label="记录当前里程" aria-hidden="true"><div class="sheet-header"><div class="sheet-handle" aria-hidden="true"></div><button class="sheet-close" data-close-sheet="odometer" type="button" aria-label="关闭">×</button></div><section class="sheet-section"><span class="screen-kicker">车辆里程</span><h2>记录当前里程</h2><p class="hint">每天停车、出发或到达时记一次即可。</p><form id="odometer-form" class="form-stack"><label>当前里程<input name="odometer" required inputmode="decimal" type="number" min="0" step="0.1" placeholder="例如：33500"></label><label>记录时间<input name="occurred_at" type="datetime-local" step="1" required></label><label>地点（可选）<input name="location" placeholder="例如：大柴旦"></label><label>备注（可选）<input name="note" placeholder="停车、出发或到达时记录"></label><button class="primary" type="submit">保存里程</button></form></section></section>
   <div id="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=3.2.3" defer></script>
+  <script src="/app.js?v=3.2.4" defer></script>
 </body>
 </html>
