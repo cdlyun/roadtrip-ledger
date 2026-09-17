@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
 DB_PATH = Path(os.environ.get("ROADTRIP_DB", ROOT / "data" / "roadtrip.db"))
 PORT = int(os.environ.get("PORT", "8080"))
-APP_VERSION = "3.2.4"
+APP_VERSION = "4.1.0"
 SCHEMA_VERSION = 31
 # 可选的语义增强：密钥只从运行环境读取，绝不进入数据库、导出文件或日志。
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()

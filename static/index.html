@@ -3,21 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#0f5c56">
+  <meta name="theme-color" content="#006b62">
   <title>自驾账本</title>
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="stylesheet" href="/styles.css?v=3.2.4">
+  <link rel="stylesheet" href="/styles.css?v=4.1.0">
 </head>
 <body>
-  <div class="app-shell" data-ui-version="3.1">
+  <div class="app-shell" data-ui-version="3.2">
     <header class="topbar">
-      <div><span class="topbar-kicker">ROADTRIP LEDGER · v3.2.4</span><h1>自驾账本</h1></div>
+      <div class="brand-lockup"><span class="topbar-kicker">ROADTRIP LEDGER · v4.1.0</span><h1>自驾账本</h1></div>
+      <span class="appbar-stamp" aria-hidden="true">旅途 · 在路上</span>
       <span id="connection" class="status">连接中</span>
     </header>
 
     <main id="app-main">
       <section class="app-screen active" data-screen="home" aria-label="首页">
         <section id="trip-empty" class="welcome-card hidden">
+          <div class="landscape-stickers" aria-hidden="true"><span>山海</span><span>沿途</span><span>ROAD</span></div>
           <span class="welcome-mark">✦</span>
           <p class="screen-kicker">准备出发</p>
           <h2>把这一路，记成自己的地图</h2>
@@ -36,51 +38,56 @@
         </section>
 
         <section id="trip-active" class="journey-hero hidden">
+          <div class="route-ribbon" aria-hidden="true"><span>出发</span><i></i><b>在路上</b><i></i><span>抵达</span></div>
           <div class="journey-hero__top"><div><span class="screen-kicker">进行中的旅程</span><h2 id="trip-name"></h2></div><span class="pill">出发满油</span></div>
           <p id="trip-route" class="journey-route"></p>
-          <div id="metrics" class="metrics"></div>
           <button class="journey-more" data-go-screen="trip" type="button">
             <span class="journey-more__copy"><strong>查看行程与里程</strong><small>路线、设置与里程记录</small></span>
             <span class="journey-more__icon" aria-hidden="true">›</span>
           </button>
         </section>
 
-        <section id="home-today" class="card hidden">
+        <section id="home-overview" class="card home-overview-card hidden"><div class="section-heading"><div><span class="screen-kicker">旅途概览</span><h2>花了多少，走了多远</h2></div><button class="text-button" data-go-screen="stats" type="button">查看统计</button></div><div id="metrics" class="metrics"></div></section>
+
+        <section id="home-today" class="card route-card hidden">
           <div class="section-heading"><div><span class="screen-kicker">今天的旅途</span><h2 id="home-day-title">今天</h2></div><button class="text-button" data-go-screen="trip" type="button">行程详情</button></div>
           <div id="today-route" class="today-route"><span class="route-dot"></span><p>还没有当天路线，记一笔消费或里程后会出现在这里。</p></div>
         </section>
-        <section id="home-recent-card" class="card hidden">
+        <section id="home-recent-card" class="card journal-card hidden">
           <div class="section-heading"><h2>最近记录</h2><button class="text-button" data-go-screen="bills" type="button">全部账单</button></div>
           <div id="home-recent" class="compact-list"></div>
         </section>
       </section>
 
       <section class="app-screen" data-screen="trip" aria-label="行程">
-        <section id="trip-summary" class="card trip-summary-card">
+        <section id="trip-summary" class="card trip-summary-card"><div class="card-sticker" aria-hidden="true">行程档案</div>
           <div class="section-heading"><div><span class="screen-kicker">我的行程</span><h2>行程设置</h2></div><button id="edit-trip" class="text-button" type="button">修改</button></div>
           <div id="trip-edit" class="trip-edit hidden">
             <form id="trip-edit-form" class="form-stack"><label>行程标题<input name="name" required maxlength="100" placeholder="例如：青甘大环线"></label><div class="form-pair"><label>出发日期<input name="departure_date" type="date"></label><label>计划天数<input name="planned_days" inputmode="numeric" type="number" min="1" max="365"></label></div><label>出发里程<input name="start_odometer" required inputmode="decimal" type="number" min="0" step="0.1"><small class="field-note">填出发时仪表盘的累计总里程。</small></label><div class="form-actions"><button id="cancel-trip-edit" class="secondary" type="button">取消</button><button class="primary" type="submit">保存修改</button></div></form>
           </div>
           <p id="trip-summary-text" class="hint compact">出发后，路线与每天的记录会汇总在这里。</p><div id="trip-progress" class="trip-progress hidden"><div><span id="trip-progress-label">Day 1</span><small id="trip-progress-count"></small></div><i><b id="trip-progress-bar"></b></i></div>
         </section>
-        <section class="card day-card"><div class="section-heading"><div><span class="screen-kicker">行程日程</span><h2>沿途每一天</h2></div><span id="days-count" class="muted-count"></span></div><div id="trip-days" class="day-list"><p class="empty">正在整理行程记录…</p></div></section>
+        <section class="card day-card"><div class="section-heading"><div><span class="screen-kicker">行程日程</span><h2>沿途每一天</h2></div><span id="days-count" class="muted-count"></span></div><div class="route-ribbon route-ribbon--quiet" aria-hidden="true"><span id="trip-ribbon-origin">出发</span><i></i><b id="trip-ribbon-name">这段旅程</b><i></i><span id="trip-ribbon-destination">抵达</span></div><div id="trip-days" class="day-list"><p class="empty">正在整理行程记录…</p></div></section>
         <section id="odometer-card" class="card hidden"><div class="section-heading"><div><span class="screen-kicker">车辆里程</span><h2>里程记录</h2></div><button id="open-odometer-sheet" class="text-button" type="button">新增</button></div><p class="hint compact">停车、出发或到达时记一次；油耗和每公里成本会立即更新。</p><div id="odometer-history" class="compact-list"></div></section>
         <details id="finish-card" class="card finish-card hidden"><summary><span>结束本次行程</span><small>默认收起，防止误操作</small></summary><div class="finish-body"><p class="hint">结束只会锁定本次记录，不会删除账单；误结束后仍可恢复。</p><form id="finish-form" class="form-stack"><label>结束里程<input name="end_odometer" required inputmode="decimal" type="number" min="0" step="0.1" placeholder="车辆仪表盘总里程"></label><label class="finish-confirm"><input name="confirm_finish" type="checkbox" required><span>我已核对结束里程，并确认当前没有待同步记录</span></label><button class="finish-button" type="submit">确认结束行程</button></form></div></details>
       </section>
 
       <section class="app-screen" data-screen="bills" aria-label="账单">
-        <section id="history-card" class="card hidden"><div class="section-heading"><div><span class="screen-kicker">我的账单</span><h2>全部消费</h2></div><div class="export-actions"><button id="open-pending" class="export-link" type="button">待处理记录</button><button id="export-excel" class="export-link" type="button">下载 Excel</button><button id="export-local" class="export-link" type="button">待处理 CSV</button></div></div><p id="export-help" class="export-help">Excel 包含本次已入账的行程数据，适合留存和后续分析；下载后可在浏览器“下载内容”或手机“文件管理 · 下载”中找到。</p><div id="sync-progress" class="sync-progress hidden"><span id="sync-progress-label"></span><progress id="sync-progress-bar" max="1" value="0"></progress></div><div id="sync-note" class="sync-note hidden"></div><div id="pending-history" class="history"></div><div id="category-summary" class="category-summary"></div><div id="history" class="history"></div></section>
+        <section id="history-card" class="card hidden"><div class="section-heading"><div><span class="screen-kicker">旅途账簿</span><h2>全部消费</h2></div><div class="export-actions"><button id="open-pending" class="export-link" type="button">待处理记录</button><button id="export-excel" class="export-link" type="button">下载 Excel</button><button id="export-local" class="export-link" type="button">待处理 CSV</button></div></div><p id="export-help" class="export-help">Excel 包含本次已入账的行程数据，适合留存和后续分析；下载后可在浏览器“下载内容”或手机“文件管理 · 下载”中找到。</p><div id="sync-progress" class="sync-progress hidden"><span id="sync-progress-label"></span><progress id="sync-progress-bar" max="1" value="0"></progress></div><div id="sync-note" class="sync-note hidden"></div><div id="pending-history" class="history"></div><div id="category-summary" class="category-summary"></div><div id="history" class="history"></div></section>
+        <aside id="entry-detail-card" class="card entry-detail-card hidden" aria-live="polite"><span class="screen-kicker">记录详情</span><h2>选择一笔记录</h2><p class="hint">在左侧账单中点选记录，可查看完整信息并修改。</p></aside>
         <details id="trash-card" class="card hidden"><summary class="section-summary"><span>回收站</span><small>删除的记录保留 30 天</small></summary><div id="trash-list" class="history"></div></details>
       </section>
 
       <section class="app-screen" data-screen="stats" aria-label="统计">
-        <section class="stats-cover"><span class="screen-kicker">TRIP OVERVIEW</span><h2>这一路，越山向海</h2><p id="stats-caption">开始行程后，这里会汇总费用和车辆数据。</p><div id="stats-total" class="stats-total">—</div></section>
+        <section class="stats-cover"><div class="stats-cover__map" aria-hidden="true">ROAD<br>TRIP</div><span class="screen-kicker">TRIP OVERVIEW</span><h2>这一路，越山向海</h2><p id="stats-caption">开始行程后，这里会汇总费用和车辆数据。</p><div id="stats-total" class="stats-total">—</div></section>
+        <section class="card stats-kpi-card"><div class="section-heading"><div><span class="screen-kicker">本次行程</span><h2>关键数据</h2></div></div><div id="stats-kpis" class="stats-kpis"></div></section>
         <section class="card"><div class="section-heading"><h2>费用构成</h2><span class="muted-count">本次行程</span></div><div id="stats-categories" class="stats-categories"></div></section>
+        <section class="card stats-trend-card"><div class="section-heading"><h2>每日花费</h2><span class="muted-count">按记录日期</span></div><div id="stats-trend" class="stats-trend"></div></section>
         <section class="card"><div class="section-heading"><h2>用车成本</h2><button class="text-button" data-open-odometer type="button">记录里程</button></div><div id="stats-vehicle" class="stats-vehicle"></div></section>
       </section>
     </main>
 
-    <nav class="bottom-nav" aria-label="主导航"><button class="nav-item active" data-go-screen="home" type="button"><img src="/assets/icon-home.svg" alt=""><small>首页</small></button><button class="nav-item" data-go-screen="trip" type="button"><img src="/assets/icon-route.svg" alt=""><small>行程</small></button><button id="open-record-sheet" class="nav-add" type="button" aria-label="新增记录"><img src="/assets/icon-plus.svg" alt=""></button><button class="nav-item" data-go-screen="bills" type="button"><img src="/assets/icon-receipt.svg" alt=""><small>账单</small></button><button class="nav-item" data-go-screen="stats" type="button"><img src="/assets/icon-chart.svg" alt=""><small>统计</small></button></nav>
+    <nav class="bottom-nav" aria-label="主导航"><span class="nav-route-mark" aria-hidden="true">旅途<br>路书</span><button class="nav-item active" data-go-screen="home" type="button"><img src="/assets/icon-home.svg" alt=""><small>首页</small></button><button class="nav-item" data-go-screen="trip" type="button"><img src="/assets/icon-route.svg" alt=""><small>行程</small></button><button id="open-record-sheet" class="nav-add" type="button" aria-label="新增记录"><img src="/assets/icon-plus.svg" alt=""></button><button class="nav-item" data-go-screen="bills" type="button"><img src="/assets/icon-receipt.svg" alt=""><small>账单</small></button><button class="nav-item" data-go-screen="stats" type="button"><img src="/assets/icon-chart.svg" alt=""><small>统计</small></button></nav>
   </div>
 
   <div id="sheet-backdrop" class="sheet-backdrop" aria-hidden="true"></div>
@@ -90,6 +97,6 @@
   </section>
   <section id="odometer-sheet" class="bottom-sheet bottom-sheet--small" aria-label="记录当前里程" aria-hidden="true"><div class="sheet-header"><div class="sheet-handle" aria-hidden="true"></div><button class="sheet-close" data-close-sheet="odometer" type="button" aria-label="关闭">×</button></div><section class="sheet-section"><span class="screen-kicker">车辆里程</span><h2>记录当前里程</h2><p class="hint">每天停车、出发或到达时记一次即可。</p><form id="odometer-form" class="form-stack"><label>当前里程<input name="odometer" required inputmode="decimal" type="number" min="0" step="0.1" placeholder="例如：33500"></label><label>记录时间<input name="occurred_at" type="datetime-local" step="1" required></label><label>地点（可选）<input name="location" placeholder="例如：大柴旦"></label><label>备注（可选）<input name="note" placeholder="停车、出发或到达时记录"></label><button class="primary" type="submit">保存里程</button></form></section></section>
   <div id="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=3.2.4" defer></script>
+  <script src="/app.js?v=4.1.0" defer></script>
 </body>
 </html>

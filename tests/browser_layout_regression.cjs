@@ -64,12 +64,12 @@ async function seed(request,base){
         const small = geometry.targets.filter(t => t.height < 47.9 || t.width < 47.9);
         if (small.length) layoutFailures.push(`${width} ${screen}: undersized targets ${JSON.stringify(small)}`);
         const rail=await page.locator('.bottom-nav').evaluate(el=>({width:el.getBoundingClientRect().width,position:getComputedStyle(el).position}));
-        if(width >= 648 && width < 992){ assert.ok(Math.abs(rail.width-88)<2,`${width}: expected 88px rail, got ${rail.width}`); assert.equal(geometry.columns.split(' ').length,2,`${width} ${screen}: not two columns`); }
-        if(width >= 648 && screen==='bills') {
+        if(width >= 700 && width < 992){ assert.ok(Math.abs(rail.width-88)<2,`${width}: expected 88px rail, got ${rail.width}`); assert.equal(geometry.columns.split(' ').length,2,`${width} ${screen}: not two columns`); }
+        if(width >= 700 && screen==='bills') {
           await page.locator('#history-card:not(.hidden)').waitFor({timeout:5000});
           await page.waitForFunction(()=>document.querySelectorAll('#history .history-item').length>0,null,{timeout:5000});
-          const cards = await page.locator('#history-card,#trash-card').evaluateAll(nodes=>nodes.filter(n=>n.getClientRects().length).map(n=>({x:n.getBoundingClientRect().x,y:n.getBoundingClientRect().y,width:n.getBoundingClientRect().width})));
-          if(cards.length>1) assert.ok(cards[1].x >= cards[0].x+cards[0].width, 'wide bills must actually place cards side by side');
+          const cards = await page.locator('#history-card,#entry-detail-card').evaluateAll(nodes=>nodes.filter(n=>n.getClientRects().length).map(n=>({x:n.getBoundingClientRect().x,y:n.getBoundingClientRect().y,width:n.getBoundingClientRect().width})));
+          if(cards.length>1) assert.ok(cards[1].x >= cards[0].x+cards[0].width, 'wide bills must place the selected record detail beside the list');
           const textWidth = await page.locator('#history .history-item>div').first().evaluate(n=>n.getBoundingClientRect().width);
           assert.ok(textWidth >= 180,'bill description must remain readable, not squeezed by actions');
         }

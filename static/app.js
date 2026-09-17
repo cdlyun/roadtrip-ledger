@@ -155,6 +155,9 @@ function setScreen(name){
   if(target!=="home" && !state.trip){ toast("开始一段行程后即可查看这里"); name="home"; }
   else name=target;
   state.view=name;
+  // UI 3.2 uses this only as a visual context hook. It never owns navigation
+  // state, so rotating a fold screen cannot reset a draft or open sheet.
+  document.querySelector(".app-shell")?.setAttribute?.("data-active-screen",name);
   document.querySelectorAll("[data-screen]").forEach(node=>node.classList.toggle("active",node.dataset.screen===name));
   document.querySelectorAll(".nav-item[data-go-screen]").forEach(node=>node.classList.toggle("active",node.dataset.goScreen===name));
   const main=$("#app-main"); if(main) main.dataset.screen=name;
@@ -242,6 +245,16 @@ function openRecordSheet(){
   if(!state.trip){ toast("请先开始一段行程"); return; }
   setSheetOpen("odometer",false); setSheetOpen("record",true);
   if(!state.parsed){ show("#entry-card",true); show("#review-card",false); }
+}
+function ensureEntryJourneyActions(){
+  const card=$("#entry-card"), anchor=$("#draft-notice");
+  if(!card || !anchor || card.querySelector(".entry-journey-switch")) return;
+  const strip=document.createElement("div"), label=document.createElement("span"), mileage=document.createElement("button");
+  strip.className="entry-journey-switch"; text(label,"消费 · 加油");
+  mileage.type="button"; mileage.className="secondary"; text(mileage,"记录里程");
+  mileage.addEventListener("click",openOdometerSheet);
+  strip.append(label,mileage);
+  if(typeof anchor.after==="function") anchor.after(strip); else card.append(strip);
 }
 function setEntryMode(mode,focus=false){
   const next=mode==="manual" ? "manual" : "natural";
@@ -333,11 +346,14 @@ async function bootstrap(){
 function renderTrip(){
   const active=Boolean(state.trip);
   show("#trip-empty",!active); show("#trip-active",active); show("#entry-card",active);
-  show("#finish-card",active); show("#history-card",active); show("#odometer-card",active); show("#trash-card",active); show("#home-today",active); show("#home-recent-card",active); if(!active) show("#review-card",false);
+  show("#finish-card",active); show("#history-card",active); show("#entry-detail-card",active); show("#odometer-card",active); show("#trash-card",active); show("#home-overview",active); show("#home-today",active); show("#home-recent-card",active); if(!active) show("#review-card",false);
   show("#restore-trip",!active && Boolean(state.latestFinished));
   if(!active && state.latestFinished) text($("#restore-trip-name"),state.latestFinished.name);
   if(!active) closeTripEdit();
   if(!active) return;
+  text($("#trip-ribbon-origin"),state.trip.origin || "出发");
+  text($("#trip-ribbon-name"),state.trip.name || "这段旅程");
+  text($("#trip-ribbon-destination"),state.trip.destination || "抵达");
   text($("#trip-name"),state.trip.name);
   text($("#trip-route"),`${state.trip.origin}${state.trip.destination ? ` → ${state.trip.destination}` : ""} · 出发里程 ${state.trip.start_odometer} km`);
   text($("#trip-summary-text"),`${state.trip.origin}${state.trip.destination ? ` → ${state.trip.destination}` : ""} · 出发里程 ${state.trip.start_odometer} km`);
@@ -834,8 +850,22 @@ function renderDashboard(){
     edit.addEventListener("click",()=>editEntry(entry));
     remove.addEventListener("click",()=>removeEntry(entry));
     revisions.addEventListener("click",()=>toggleRevisions(row,entry));
+    row.tabIndex=0; row.setAttribute("role","button"); row.setAttribute("aria-label",`查看${categoryLabels[entry.category] || "消费"}记录详情`);
+    const select=()=>renderEntryDetail(entry); row.addEventListener("click",event=>{ if(event.target.closest("button")) return; select(); }); row.addEventListener("keydown",event=>{ if(event.target!==row || (event.key!=="Enter" && event.key!==" ")) return; event.preventDefault(); select(); });
     actions.append(edit,remove,revisions); right.append(amount,actions); left.append(title,detail); row.append(left,right); history.append(row);
   });
+  renderEntryDetail(d.entries[0]);
+}
+
+function renderEntryDetail(entry){
+  const box=$("#entry-detail-card"); if(!box) return;
+  box.replaceChildren();
+  const kicker=document.createElement("span"), title=document.createElement("h2"), amount=document.createElement("strong"), detail=document.createElement("dl"), edit=document.createElement("button");
+  kicker.className="screen-kicker"; text(kicker,"记录详情"); text(title,categoryLabels[entry?.category] || entry?.category_label || "选择一笔记录");
+  if(!entry){ const hint=document.createElement("p"); hint.className="hint"; text(hint,"在左侧账单中点选记录，可查看完整信息并修改。"); box.append(kicker,title,hint); return; }
+  amount.className="entry-detail-amount"; text(amount,money(entry.amount)); detail.className="entry-detail-list";
+  [["时间",displayEntryTime(entry.occurred_at)],["地点",entry.location],["内容",entry.note || entry.item || entry.raw_text],["支付金额",money(entry.amount)]].filter(([,value])=>value).forEach(([label,value])=>{ const dt=document.createElement("dt"),dd=document.createElement("dd"); text(dt,label); text(dd,value); detail.append(dt,dd); });
+  edit.type="button"; edit.className="secondary"; text(edit,"修改这笔记录"); edit.addEventListener("click",()=>editEntry(entry)); box.append(kicker,title,amount,detail,edit);
 }
 
 function renderV21Overview(d){
@@ -866,6 +896,14 @@ function renderV21Overview(d){
       ["百公里油耗",d.fuel?.l_per_100km!=null ? `${d.fuel.l_per_100km} L` : "待计算"],
       ["每公里成本",d.vehicle_cost_per_km!=null ? `¥${Number(d.vehicle_cost_per_km).toFixed(2)}` : "待计算"]
     ].forEach(([label,value])=>{ const item=document.createElement("div"), l=document.createElement("span"), v=document.createElement("strong"); text(l,label); text(v,value); item.append(l,v); vehicle.append(item); });
+  }
+  const kpis=$("#stats-kpis"); if(kpis){
+    kpis.replaceChildren(); [["总支出",money(d.total_spend)],["记录笔数",`${d.entries?.length || 0} 笔`],["行驶里程",d.distance_km==null ? "待补充" : `${d.distance_km} km`],["用车成本",money(d.vehicle_cost)]].forEach(([label,value])=>{ const item=document.createElement("div"),l=document.createElement("span"),v=document.createElement("strong"); text(l,label);text(v,value);item.append(l,v);kpis.append(item); });
+  }
+  const trend=$("#stats-trend"); if(trend){
+    trend.replaceChildren(); const days=(state.days && state.days.length ? state.days : dayRecordsFromDashboard()).filter(day=>Number(day.spend||0)>0); const max=Math.max(1,...days.map(day=>Number(day.spend||0)));
+    if(!days.length){ const empty=document.createElement("p"); empty.className="empty"; text(empty,"有消费记录后，这里会显示每天的实际花费。"); trend.append(empty); }
+    days.slice(-7).forEach(day=>{ const row=document.createElement("div"),label=document.createElement("span"),bar=document.createElement("i"),value=document.createElement("b"); row.className="stats-trend-row"; bar.style.setProperty("--percent",`${Math.max(4,Number(day.spend||0)/max*100)}%`); text(label,dateLabel(day.travel_date)); text(value,money(day.spend)); row.append(label,bar,value); trend.append(row); });
   }
 }
 async function toggleRevisions(row,entry){
@@ -1644,7 +1682,7 @@ function syncVisualViewport(){
   root?.setProperty("--visual-height",`${height}px`);
   root?.setProperty("--visual-bottom-inset",`${inset}px`);
 }
-ensureFullTankControl(); syncVisualViewport(); window.visualViewport?.addEventListener("resize",syncVisualViewport); window.visualViewport?.addEventListener("scroll",syncVisualViewport); window.addEventListener?.("resize",syncVisualViewport);
+ensureFullTankControl(); ensureEntryJourneyActions(); syncVisualViewport(); window.visualViewport?.addEventListener("resize",syncVisualViewport); window.visualViewport?.addEventListener("scroll",syncVisualViewport); window.addEventListener?.("resize",syncVisualViewport);
 setScreen("home");
 
 fillSelect(); bootstrap();
