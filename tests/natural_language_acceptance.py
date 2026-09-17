@@ -19,6 +19,8 @@ import app
 CASES = (
     ("餐饮-中文数字", "在广元午餐吃米粉三十元",
      {"category": "meal", "amount": 30, "location": "广元", "item": "米粉"}),
+    ("餐饮-语音漏空格金额", "在广元吃米粉30",
+     {"category": "meal", "amount": 30, "location": "广元", "item": "米粉"}),
     ("餐饮-口语标点", "我刚在兰州晚餐吃牛肉面，付了四十五块",
      {"category": "meal", "amount": 45, "location": "兰州", "item": "牛肉面"}),
     ("衣物-购买句式", "在兰州买了一件冲锋衣，花了六百八十元",

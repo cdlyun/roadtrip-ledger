@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-Current application version: v4.1.0. Frontend asset revision: v4.1.0.
+Current application version: v4.1.1. Frontend asset revision: v4.1.1.
 
 ## Versioning
 
@@ -10,7 +10,8 @@ The application and frontend asset revision use semantic versions (`vmajor.minor
 
 ## Release history
 
-- **v4.1.0 (current):** adopts Figma UI V3.2 as the sole UI baseline, upgrading the native-CSS mobile and foldable-wide-screen visual system, navigation, and page layouts while retaining existing entry, offline, GPS, export, and data semantics.
+- **v4.1.1 (current):** recognizes a terminal amount when local speech transcription drops its unit or space, such as “在广元吃米粉30”, while rejecting product codes, models, sizes, and quantities.
+- **v4.1.0:** adopts Figma UI V3.2 as the sole UI baseline, upgrading the native-CSS mobile and foldable-wide-screen visual system, navigation, and page layouts while retaining existing entry, offline, GPS, export, and data semantics.
 - **v3.2.4:** supports conversational bare amounts ending in Chinese punctuation or a standalone period, such as “兰州吃一碗拉面 300 .”; the review screen now explains whether DeepSeek was called, enhanced fields, or fell back to local rules; Excel download feedback now explains where to find the file on a phone.
 - **v3.2.3:** speech-to-text input saves a draft only; it no longer parses or switches screens after a pause. Parsing begins only after you tap “识别并确认”.
 - **v3.2.2:** cleans an item after a bare amount is recognized: “吃了一碗面 30” becomes amount 30 with item “一碗面”, while model and size numbers remain intact.

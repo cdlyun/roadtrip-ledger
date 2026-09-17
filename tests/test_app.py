@@ -230,8 +230,17 @@ class ParserTests(unittest.TestCase):
             self.assertIsNone(parsed["recognized"]["amount"], text)
             self.assertFalse(parsed["can_save"], text)
 
-        # 数字必须和消费内容分隔，避免把商品规格或编号当成金额。
-        self.assertIsNone(app.parse_text("吃了一碗面30")["recognized"]["amount"])
+        # 语音转写可能吞掉金额前的空格；明确消费动作后的句末裸数字仍应识别。
+        for text in ("吃了一碗面30", "在广元吃米粉30", "在广元吃米粉 30"):
+            parsed = app.parse_text(text)
+            self.assertEqual(parsed["recognized"]["amount"], 30, text)
+            self.assertEqual(parsed["recognized"]["category"], "meal", text)
+
+        # 型号、货号、尺码和数量即便带字母前缀，也不能误作无单位金额。
+        for text in ("买衣服货号A12345", "买衣服货号：A12345", "买鞋子尺码EU42", "买鞋子尺码EU-42",
+                     "买衣服型号X200", "买衣服型号为X200", "吃米粉数量2", "吃米粉数量为2"):
+            parsed = app.parse_text(text)
+            self.assertIsNone(parsed["recognized"]["amount"], text)
 
     def test_multi_record_ai_status_only_uses_called_record_reason(self):
         previous_key, previous_open = app.DEEPSEEK_API_KEY, app.urlopen
@@ -1785,7 +1794,7 @@ class ParserTests(unittest.TestCase):
         self.assertNotIn("2026-09-21", by_date)
         self.assertEqual((by_date["2026-09-22"]["day_number"], by_date["2026-09-22"]["spend"]), (3, 260))
         report = app.dashboard(trip["id"])
-        self.assertEqual(report["app_version"], "4.1.0")
+        self.assertEqual(report["app_version"], "4.1.1")
         self.assertEqual(sum(day["spend"] for day in report["days"]), report["total_spend"])
 
     def test_v21_day_route_requires_active_trip_and_excel_has_daily_sheet(self):

@@ -1,5 +1,5 @@
-const CACHE="roadtrip-ledger-v4.1.0";
-const ASSETS=["/","/styles.css?v=4.1.0","/app.js?v=4.1.0","/manifest.webmanifest","/china_regions.json","/assets/icon-home.svg","/assets/icon-route.svg","/assets/icon-chart.svg","/assets/icon-receipt.svg","/assets/icon-plus.svg"];
+const CACHE="roadtrip-ledger-v4.1.1";
+const ASSETS=["/","/styles.css?v=4.1.1","/app.js?v=4.1.1","/manifest.webmanifest","/china_regions.json","/assets/icon-home.svg","/assets/icon-route.svg","/assets/icon-chart.svg","/assets/icon-receipt.svg","/assets/icon-plus.svg"];
 self.addEventListener("install",event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener("activate",event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener("fetch",event=>{

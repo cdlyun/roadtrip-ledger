@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
 DB_PATH = Path(os.environ.get("ROADTRIP_DB", ROOT / "data" / "roadtrip.db"))
 PORT = int(os.environ.get("PORT", "8080"))
-APP_VERSION = "4.1.0"
+APP_VERSION = "4.1.1"
 SCHEMA_VERSION = 31
 # 可选的语义增强：密钥只从运行环境读取，绝不进入数据库、导出文件或日志。
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()
@@ -283,7 +283,37 @@ def terminal_bare_expense_token(text: str, category: str | None) -> str | None:
         text,
     )
     if not bare:
-        return None
+        # 本地语音转写常把“米粉 30 元”压成“米粉30”。只在句中已有
+        # 明确消费动作、数字紧贴在非数字消费描述之后时接受该末尾数字；
+        # 油费、里程、人数、房间/商品编号等仍由下方保护规则拒绝。
+        adjacent = re.search(
+            r"(?<=[^\d\s])((?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?))"
+            r"(?=\s*(?:[。；;！？!?]|\.(?!\d))?\s*$)",
+            text,
+        )
+        if not adjacent:
+            return None
+        before_adjacent = text[:adjacent.start(1)]
+        # “吃米粉30”“买水18”“停车30”等是消费口语；单独的“住2”、
+        # “午餐3人”和任何编号/规格仍不能凭数字猜金额。
+        if not re.search(
+            r"(?:吃(?:了)?|喝(?:了)?|点了|买(?:了|个)?|购买(?:了)?|停车|打车|"
+            r"补胎|换轮胎|维修|保养|洗车|门票|过路费|高速费|通行费|ETC)"
+            r"[^\d]{1,48}$",
+            before_adjacent,
+            re.I,
+        ):
+            return None
+        # 型号/货号/尺码/数量有时带英文字母前缀（A123、EU42、X200），
+        # 仍是商品属性而不是金额；不得因语音转写缺空格而吃掉原始内容。
+        if re.search(
+            r"(?:货号|型号|尺码|规格|尺寸|容量|数量|件数|房间号|编号)\s*"
+            r"(?:(?:是|为)\s*)?(?:[:：]\s*)?[A-Za-z-]*$",
+            before_adjacent,
+            re.I,
+        ):
+            return None
+        bare = adjacent
     before = text[:bare.start(1)]
     protected_context = (
         r"(?:油号|汽油|加油|升数|加油量|当前里程|里程表|表显|里程|"
@@ -906,7 +936,7 @@ def parse_text(text: str, _single: bool = False, ai_enhance: bool = False) -> di
         # 带货币单位的金额以及所有字段编号不会命中 bare_amount_token。
         if item and bare_amount_used:
             item = re.sub(
-                rf"(?:[\s，,。；;])+{re.escape(bare_amount_token)}"
+                rf"(?:[\s，,。；;])*{re.escape(bare_amount_token)}"
                 rf"\s*(?:[。；;！？!?]|\.(?!\d))?\s*$",
                 "",
                 item,
